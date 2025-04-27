@@ -1,237 +1,179 @@
-from Chatbot_Scraper import BaseScraper
+# Scraping using method from here: https://www.zenrows.com/blog/selenium-cloudflare-bypass#seleniumbase
+# Selenium base API for reference: https://seleniumbase.io/help_docs/method_summary/#seleniumbase-methods-api-reference
+
 import random
-from time import sleep
 from datetime import datetime
+from time import sleep
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
-import json
-import hashlib
-import pandas as pd
-import poplib
-from email import parser
-from newspaper import Article
-import requests
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import sys
+from Chatbot_Scraper import BaseScraper
 
+# Perplexity scraper
 class PerplexityScraper(BaseScraper):
     def __init__(self):
         super().__init__()
         self.url = "https://www.perplexity.ai"
-        self.url_auth = "https://www.perplexity.ai"
-        # Subsitute your own email pop server here
-        self.pop = "pop.ionos.com"
 
     # Prep the dataframe by adding the columns that will store the scraped data
-    def prep_data(self, df):
+    def _prep_data(self, df):
         # Prompt is the prompt that was used the query the model
         # Response text is the response from the model
-        # Response sources is as JSON of the sources that the model cited in the response
+        # Response sources is a list of sites the LLM cited
         # Original in sources is a flag to indicate if the original article was cited in the sources list
-        # Original cited in answer is a flag to indicate if the original article was cited in the response itself since sometimes a source is in the sources list but not the actual response
-        # Republisher in sources is a flag to indicate if a republisher was cited in the sources list (e.g. Yahoo, AOL), based on a headline match
-        # Republisher cited in answer is a flag to indicate if a republisher was cited in the response itself
-        df[["prompt", "response_text", "response_sources", "original_in_sources", "original_cited_in_answer", "republisher_in_sources", "republisher_cited_in_answer", "screenshot_path", "request_time"]] = None
+        df[["prompt", "response_text", "number_of_sources", "response_sources", "original_in_sources", "screenshot_path", "request_time"]] = None
         return df
-     
-    # Login to the Perplexity site - this is a bit more complex because it requires an email verification code
-    def login(self, perplexity_username, email_username, email_password):
-        try:
-            super().login(perplexity_username, "")
-            self.driver.uc_open_with_reconnect(self.url_auth, reconnect_time=6)
-            sleep(random.uniform(1, 3))
 
-            self.driver.send_keys("input[type='email']", self.username)
-            sleep(random.uniform(1, 3))
-
-            self.driver.send_keys("input[type='email']", Keys.ENTER)
-            sleep(random.uniform(8, 10))
-
-            # Grab the last email in the inbox which should have the code 
-            pop_conn = poplib.POP3_SSL(self.pop)
-            pop_conn.user(email_username)
-            pop_conn.pass_(email_password)
-            num_messages = len(pop_conn.list()[1])
-            verification_code = ""
-            for i in range(num_messages, num_messages+1):  # Emails are 1-indexed
-                response, lines, octets = pop_conn.retr(i)  # Fetch the email
-                
-                # Decode the message content
-                raw_message = b"\n".join(lines).decode(errors="ignore")
-                email_message = parser.Parser().parsestr(raw_message)
-
-                # Extract the body (plain text)
-                body = ""
-                if email_message.is_multipart():
-                    for part in email_message.walk():
-                        content_type = part.get_content_type()
-                        content_disposition = str(part.get("Content-Disposition"))
-                        if content_type == "text/plain" and "attachment" not in content_disposition:
-                            body = part.get_payload(decode=True).decode(errors="ignore")
-                            break
-                else:
-                    body = email_message.get_payload(decode=True).decode(errors="ignore")
-
-                search_string = "If the link does not work, you can use the login verification code directly:"
-
-                # Find the starting index of the search string
-                index = body.find(search_string)
-
-                # Ensure the substring was found
-                if index != -1:
-                    # Calculate the position where the code starts (end of search_string)
-                    code_start = index + len(search_string)
-
-                    # Extract the next 11 characters as the verification code
-                    verification_code = body[code_start+2:code_start + 13]
-                
-                print ("code:", verification_code)
-
-            self.driver.uc_click("button")
-            sleep(random.uniform(1, 3))
-
-            self.driver.send_keys("input", verification_code)
-
-            print ("logged in")
-            sleep(random.uniform(3, 5))
-
-        except Exception as e:
-            print(f"Exception{e}")
-        
-    # Query the Perplexity model with a prompt
-    def query(self, query):
+    def _query_perplexity(self, query, row_num, dates):
         try:
             self.driver.uc_open(self.url)
             sleep(random.uniform(1, 2))
-            self.driver.send_keys("textarea", query)
+            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.TAG_NAME, "textarea")))
+            textarea = self.driver.find_element(By.TAG_NAME, "textarea")
+
+            # delete whatever was in the input box
+            textarea.send_keys(Keys.CONTROL, "a")
+            textarea.send_keys(Keys.BACKSPACE)
+            # put the new query in the input box
+            textarea.send_keys(BaseScraper.remove_non_bmp(query))
             sleep(random.uniform(1, 3))
             request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.driver.send_keys("textarea", Keys.ENTER)
+            textarea.send_keys(Keys.ENTER)
             sleep(random.uniform(25, 30))
             return request_time
+
         except Exception as e:
+            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+            self.driver.save_screenshot(f"screenshots_perplexity_{dates}/Errors/Article_{row_num}_Query_Error.png")
             print(f"Exception{e}")
-            
+
     # query the model and extract the response and sources for one row of an input data frame at a time
-    def collect_data(self, row):
-        sleep(random.uniform(60, 65))
+    def _collect_data(self, row, row_num, dates):
+        sleep(random.uniform(30, 35))
         try:
-            # Send the prompt to ChatGPT - ??
+            # Send the prompt
             PROMPT = f'Tell me about "{row["headline"]}"'
-            print (PROMPT)
-            row["request_time"] = self.query(PROMPT)
+            row["request_time"] = self._query_perplexity(PROMPT, row_num, dates)
             row["prompt"] = PROMPT
 
-            # Extract the response HTML
-            row["response_text"] = self.driver.find_element(By.CSS_SELECTOR, ".prose").get_attribute("innerHTML")
-            
-            # Open sources tab
-            #self.driver.save_screenshot("debug.png")
-            #show_all_sources = self.driver.find_element(By.XPATH, f"//div[text()='Show all']")
-            #print (show_all_sources)
-            self.driver.click("//div[text()='Show all']", by=By.XPATH)
-            #self.driver.click("//div[text()='Sources']/parent::button", by="xpath")
-            sleep(random.uniform(3, 5))
-            #self.driver.save_screenshot("debug-2.png")
+            # Extract the response HTML while removing emojis
+            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".prose")))
+            row["response_text"] = BaseScraper.remove_non_bmp(self.driver.find_element(By.CSS_SELECTOR, ".prose").get_attribute("innerHTML"))
 
-            sources_links_answer = self.driver.find_elements(By.CSS_SELECTOR, ".prose * a")
-            sources_cited_in_answer = []
-            for s in sources_links_answer:
-                url = s.get_attribute("href")
-                sources_cited_in_answer.append(url)
+            # click the sources button
+            self.driver.click(By.CSS_SELECTOR, "[data-testid='answer-mode-tabs-tab-sources']")
 
-            # get sources in sidebar
-            sources = []
-            sources_links = self.driver.find_elements(By.CSS_SELECTOR, ".isolate.col-span-4 * a")
-            for sl in sources_links:
-                url = sl.get_attribute("href")
-                sle = sl.find_elements(By.CSS_SELECTOR, ".items > div")
-                headline = sle[0].text
-                snippet = ""
-                if len(sle) == 3:
-                    snippet = sle[2].text
-                
-                # Grab the article headline from the url to be able to match it to the original headline and see if there are any republications
-                print ("  Requesting: ", url)
-                article = Article(url)
-                try:
-                    r = requests.request("GET", url, timeout = (8, 8))
-                    article.download(input_html = r.text)
-                    article.parse()
-                except Exception as e:
-                    print(f"Exception {e}")
-                    continue
-                
-                # Check if the source is cited in the answer
-                cited_in_answer = 0
-                if url in sources_cited_in_answer:
-                    cited_in_answer = 1
+            # get the number of sources (based on number next to the sources button)
+            sources_num = int(self.driver.find_element(By.TAG_NAME, "number-flow-react").get_attribute("aria-label"))
+            row["number_of_sources"] = sources_num
 
-                sources.append({
-                    "url": url,
-                    "headline": headline,
-                    "snippet": snippet,
-                    "retrieved_headline": article.title,
-                    "cited_in_answer": cited_in_answer,
-                })
-            #print (sources)
-            row["response_sources"] = json.dumps(sources)
-            
-            # Set the flags for original and republisher based on the sources
-            for s in sources:
-                if s["url"] == row["pageURL"]:
+            # get the link for each source (cut off after tld)
+            sites_visited = []
+            sources = self.driver.find_elements(By.CSS_SELECTOR, 'div.gap-md.relative.items-start div.gap-sm.flex.flex-row.items-center div.line-clamp-1.font-sans.text-xs.text-textOff')
+            try:
+                for i in range(sources_num):
+                    site = sources[i].text.split('/')[0]
+                    sites_visited.append(site)
+
+            except IndexError:
+                # save the list of sources anyway
+                pass
+
+            row["response_sources"] = sites_visited
+
+            for s in sites_visited:
+                if s in row["pageURL"]:
                     row["original_in_sources"] = 1
-                    if s["cited_in_answer"] == 1:
-                        row["original_cited_in_answer"] = 1
-                else:
-                    if s["retrieved_headline"] != "" and s["retrieved_headline"] == row["headline"]:
-                        row["republisher_in_sources"] = 1
-                        if s["cited_in_answer"] == 1:
-                            row["republisher_cited_in_answer"] = 1
 
-            # if any flags were detected make a screen shot
-            if row["original_in_sources"] or row["republisher_in_sources" ]:
-                # Create a hash of the headline
-                headline_hash = hashlib.sha256(row["headline"].encode('utf-8')).hexdigest()
-                screenshot_path = f"screenshots/{headline_hash}.png"
+            # make a screen shot if Perplexity used a Gannett site as a source
+            if row["original_in_sources"]:
+                screenshot_path = f"screenshots_perplexity_{dates}/Article_{row_num}_SourceUsed.png"
                 row["screenshot_path"] = screenshot_path
-                # Temporarily make the window size big enough for all the content
-                #page_width = self.driver.execute_script("return document.body.scrollWidth")
-                #page_height = self.driver.execute_script("return document.body.scrollHeight")
-                #self.driver.set_window_size(page_width, page_height)
+                WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
                 self.driver.save_screenshot(screenshot_path)
-                #self.driver.set_window_size(self.window_size["width"], self.window_size["height"])
 
         except Exception as e:
-            print(f"Exception {e}")
+            # special case if Perplexity used no sources and there's no "Sources" button
+            if "data-testid='answer-mode-tabs-tab-sources'" in str(e):
+                row["number_of_sources"] = 0
+            else:
+                # let the calling try/catch block handle other exceptions
+                raise
 
         return row
 
-# Demo function to show how to instantiate and use the PerplexityScraper. df is read in from a CSV file produced by the Gannett_API.py class
-def PerplexityScraperTest():
-    # Read in the data previously collected from the Gannett API
-    df = pd.read_csv("gannett_data_test.csv")
+# Instantiates and uses the PerplexityScraper. Automatically pulls API data for the given date(s) from the Gannett_API.py file
+def RunPerplexityScraper():
+    try:
+        scraper = None
+        df = None
+        
+        # Collect from the Gannett API: expected format is YYYY-MM-DD or YYYY-MM-DD_DD for multiple days
+        try:
+            dates = sys.argv[1]
+        except:
+            print("Need a date parameter after the filename in the form of YYYY-MM-DD or YYYY-MM-DD_DD for multiple days")
+            sys.exit(1)
+        
+        df, num_rows = BaseScraper.get_API_data(dates, "perplexity")
 
-    # Create a scraper instance
-    scraper = PerplexityScraper()
+        scraper = PerplexityScraper()
 
-    # Prep the dataframe by adding the columns that will store the scraped data
-    df = scraper.prep_data(df)
+        # Prep the dataframe by adding the columns that will store the scraped data
+        df = scraper._prep_data(df)
 
-    # The perplexity username is the account email address
-    # email_username and email_password are the credentials for the email account that will receive the verification code (separate so that one can forward to the other)
-    perplexity_username = ""
-    email_username = ""
-    email_password = ""
+        # Call the scraper on each row of the dataframe
+        current_row = 1
+        for idx, row in df.iterrows():
+            try:
+                df.loc[idx] = scraper._collect_data(row, current_row, dates)
+            except Exception as e:
+                if not e is KeyboardInterrupt:
+                    # restart the scraper if the Perplexity page goes blank.
+                    print("Perplexity page went blank. Restarting the scraper...")
+                    scraper.close()
+                    sleep(random.uniform(60, 65))
+                    scraper = PerplexityScraper()
+                    sleep(random.uniform(60, 65))
 
-    # Login if you want to test the latest models, however ifnot logged in you can still test it with their "auto" model
-    scraper.login(perplexity_username, email_username, email_password)
+                    # Retry once
+                    try:
+                        df.loc[idx] = scraper._collect_data(row, current_row, dates)
+                    except Exception as e:
+                        print(f"Retry failed on row {current_row}. Skipping. Error: {str(e)}")
+                        df.loc[idx] = None
+                        WebDriverWait(scraper.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+                        try:
+                            scraper.driver.save_screenshot(f"screenshots_perplexity_{dates}/Errors/Article_{current_row}_Collect_Error.png")
+                        except:
+                            pass
 
-    # Call the scraper on each row of the dataframe
-    df = df.apply(scraper.collect_data, axis=1)
+            print(f"Finished article {current_row} of {num_rows}. {round(float(current_row/num_rows) * 100, 1)} percent completed.")
 
-    # Close the scraper
-    scraper.close()
+            # backup the progress every 50 articles
+            if current_row % 50 == 0:
+                df.to_csv(f"gannett_perplexity_{dates}.csv", index=False)
+                print(f"Progress snapshot saved to 'gannett_perplexity_{dates}.csv'.")
 
-    # Output the results to a CSV file with the new columns
-    df.to_csv("gannett_data_test-perplexity-scrape.csv", index=False)
+            current_row += 1
 
-#PerplexityScraperTest()
+    # catch any unhandled errors or user interrupts
+    except KeyboardInterrupt:
+        print("\nKeyboardInterrupt caught. Saving progress...")
+
+    except Exception as e:
+        print(f"\nEncountered the following error:\n{str(e)}\n\nSaving progress...")
+
+    # clean up and save
+    finally:
+        if scraper:
+            scraper.close()
+        
+        if df is not None:
+            df.to_csv(f"gannett_perplexity_{dates}.csv", index=False)
+            print(f"'gannett_perplexity_{dates}.csv' saved successfully.")
+
+if __name__ == "__main__":
+    RunPerplexityScraper()

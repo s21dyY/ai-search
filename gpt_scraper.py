@@ -4,10 +4,10 @@ from time import sleep
 from datetime import datetime
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import json
-import hashlib
-import pandas as pd
-
+import sys
 
 class ChatGPTScraper(BaseScraper):
     def __init__(self):
@@ -26,42 +26,63 @@ class ChatGPTScraper(BaseScraper):
         # Original_in_search_results is a flag to indicate if the original article was cited in the search results list (an extended list)
         df[["prompt", "response_text", "response_citations", "response_search_results", "original_in_citations", "original_in_search_results", "republisher_in_citations", "republisher_in_search_results", "screenshot_path", "request_time"]] = None
         return df
-    
-    # Login to the ChatGPT site
-    def login(self, username, password):
+
+    # Login to the ChatGPT site using CMU auth
+    def _login(self, usern, pwd, dates):
         try:
-            super().login(username, password)
+            super()._login(username = usern, password = pwd)
 
-            self.driver.uc_open_with_reconnect(self.url_auth, reconnect_time=6)
+            self.driver.uc_open_with_reconnect(self.url_auth, reconnect_time=4)
             sleep(random.uniform(1, 3))
 
-            self.driver.uc_click("button")
+            #Main page for chatgpt. Clicks on "login" button
+            self.driver.uc_click("button") 
+            sleep(random.uniform(1, 3))
+            
+            #Google Sign on Button
+            self.driver.uc_click("button[value='google']")
             sleep(random.uniform(1, 3))
 
-            self.driver.send_keys("input", self.username)
+            #Inputs username into the email box
+            self.driver.send_keys("input#identifierId.whsOnd.zHQkBf", self.username) 
             sleep(random.uniform(1, 3))
 
-            self.driver.uc_click("button")
+            #Next Button on Google Sign in Page
+            self.driver.uc_click("button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.BqKGqe.Jskylb.TrZEUc.lw1w4b") 
             sleep(random.uniform(1, 3))
 
-            self.driver.send_keys("input#password", self.password)
+            #CMU Andrew login username input
+            self.driver.send_keys("input#username", self.username)
             sleep(random.uniform(1, 3))
 
-            self.driver.uc_click("button._button-login-password")
+            #CMU Andrew login password input
+            self.driver.send_keys("input#passwordinput", self.password)
             sleep(random.uniform(1, 3))
 
-            self.driver.uc_click("button[aria-label='Close sidebar']")
-            print ("logged in")
+            #CMU Andrew login login button
+            self.driver.uc_click("input.loginbutton")
+
+            #CMU DUO Push "My Device" button
+            self.driver.uc_click("button#trust-browser-button.button--primary--full-width.button--primary.button--xlarge.size-margin-top-xlarge.size-margin-bottom-medium")
+            
+            print("Logged into ChatGPT")
 
         except Exception as e:
+            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+            self.driver.save_screenshot(f"screenshots_gpt_{dates}/_Login_Error.png")
             print(f"Exception{e}")
         
     # Query the ChatGPT model with a prompt
-    def query(self, query):
+    def _query_chatgpt(self, query, row_num, dates):
         try:
             self.driver.uc_open(self.url)
             sleep(random.uniform(1, 2))
-            self.driver.send_keys("#prompt-textarea", query)
+            # Delete what was in the input box
+            textarea = self.driver.find_element("div#prompt-textarea.ProseMirror  ") #Rename with ChatGPT textbox element name
+            textarea.send_keys(Keys.CONTROL, "a")
+            textarea.send_keys(Keys.BACKSPACE)
+
+            self.driver.send_keys("div#prompt-textarea.ProseMirror  ", BaseScraper.remove_non_bmp(query))
             sleep(random.uniform(1, 3))
             request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.driver.send_keys("#prompt-textarea", Keys.ENTER)
@@ -70,32 +91,30 @@ class ChatGPTScraper(BaseScraper):
             #sources_button = self.driver.find_element(By.CSS_SELECTOR, ".not-prose")
             
         except Exception as e:
+            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+            self.driver.save_screenshot(f"screenshots_gpt_{dates}/Errors/Article_{row_num}_Query_Error.png")
             print(f"Exception{e}")
         
-        return request_time
-
     # Collect the data from the ChatGPT model for one row of the input data frame this is applied to
-    def collect_data(self, row):
-        #add a delay here so we don't hit the gpt-4o limit of 80 messages / 3 hrs. 
-        sleep(random.uniform(110, 130))
+    def _collect_data(self, row, row_num, dates):
+        # added a delay here so we don't hit the gpt-4o limit of 80 messages / 3 hrs. 
+        sleep(random.uniform(20, 30))
         try:
             # Send the prompt to ChatGPT
             PROMPT = f'Tell me about "{row["headline"]}"'
-            print (PROMPT)
-            row["request_time"] = self.query(PROMPT)
+            row["request_time"] = self._query_chatgpt(PROMPT, row_num, dates)
             row["prompt"] = PROMPT
 
             # Extract the response HTML
-            row["response_text"] = self.extract_response()
+            row["response_text"] = self._extract_response()
             
             # Open sources tab
             self.driver.uc_click("button.not-prose.group\\/footnote")
-            #self.driver.click("//div[text()='Sources']/parent::button", by="xpath")
             sleep(random.uniform(3, 5))
 
             # And then extract all of the source information broken into citations and search results
             try:
-                citations = self.extract_sources("Citations")
+                citations = self._extract_sources("Citations")
                 row["response_citations"] = json.dumps(citations)
                 for c in citations:
                     if c["url"] in row["pageURL"]:
@@ -105,46 +124,43 @@ class ChatGPTScraper(BaseScraper):
                     h = c["headline"].split(" ...")[0]
                     if h in row["headline"] and c["url"] not in row["pageURL"] and "en.wikipedia.org" not in c["url"]:
                         row["republisher_in_citations"] = 1
+
+                search_results = self._extract_sources("More")
+                row["response_search_results"] = json.dumps(search_results)
+                for sr in search_results:
+                    if sr["url"] in row["pageURL"]:
+                        row["original_in_search_results"] = 1
+                    
+                    h = sr["headline"].split(" ...")[0]
+                    if h in row["headline"] and sr["url"] not in row["pageURL"] and "en.wikipedia.org" not in sr["url"]:
+                        row["republisher_in_search_results"] = 1
+
             except Exception as e:
-                print(f"Exception {e}")
-            
-            search_results = self.extract_sources("More")
-            row["response_search_results"] = json.dumps(search_results)
-            for sr in search_results:
-                if sr["url"] in row["pageURL"]:
-                    row["original_in_search_results"] = 1
-                
-                h = sr["headline"].split(" ...")[0]
-                if h in row["headline"] and sr["url"] not in row["pageURL"] and "en.wikipedia.org" not in sr["url"]:
-                    row["republisher_in_search_results"] = 1
+                WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+                self.driver.save_screenshot(f"screenshots_gpt_{dates}/Errors/Article_{row_num}_Collecting_Sources_Error.png")
+                print(f"Exception{e}")
 
             # if any copies were detected make a screen shot
             if row["original_in_citations"] or row["republisher_in_citations" ] or row["original_in_search_results"] or row ["republisher_in_search_results"]:
-                # Create a hash of the headline
-                headline_hash = hashlib.sha256(row["headline"].encode('utf-8')).hexdigest()
-                screenshot_path = f"screenshots/{headline_hash}.png"
+                screenshot_path = f"screenshots_gpt_{dates}/Article_{row_num}_SourceUsed.png"
                 row["screenshot_path"] = screenshot_path
-                # Temporarily make the window size big enough for all the content
-                #page_width = self.driver.execute_script("return document.body.scrollWidth")
-                #page_height = self.driver.execute_script("return document.body.scrollHeight")
-                #self.driver.set_window_size(page_width, page_height)
-                self.driver.save_screenshot(screenshot_path)
-                #self.driver.set_window_size(self.window_size["width"], self.window_size["height"])
-            print (row)
-            
+                self.driver.save_screenshot(screenshot_path)    
+
         except Exception as e:
-            print(f"Exception {e}")
+            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+            self.driver.save_screenshot(f"screenshots_gpt_{dates}/Errors/Article_{row_num}_Collect_Error.png")
+            print(f"Exception{e}")
 
         return row
     
     # Helper to extract the response from the ChatGPT model
-    def extract_response(self):
+    def _extract_response(self):
         response = self.driver.find_element(By.CSS_SELECTOR, ".markdown.prose").get_attribute("innerHTML")
 
         return response
     
     # Helper to extract the sources from the ChatGPT model
-    def extract_sources(self, header_text):
+    def _extract_sources(self, header_text):
         results = []
 
         # Find the section based on the header text
@@ -157,7 +173,13 @@ class ChatGPTScraper(BaseScraper):
             url = url.replace("?utm_source=chatgpt.com", "")
             text_elements = link.find_elements(By.TAG_NAME, "div")
             headline = text_elements[1].text
-            snippet = text_elements[2].text
+
+            # some sources may not have snippets
+            try:
+                snippet = text_elements[2].text
+            except:
+                snippet = ""
+            
             # Extract the date (assumes the date is the first part of the snippet)
             #date = snippet.split(" — ")[0] if " — " in snippet else ""
             #remaining_snippet = snippet[len(date) + 3:] if date else snippet
@@ -167,31 +189,59 @@ class ChatGPTScraper(BaseScraper):
                 "snippet": snippet,
             })
         return results
-    
-# Demo function to show how to instantiate and use the ChatGPTScraper. df is read in from a CSV file produced by the Gannett_API.py class
-def ChatGPTScraperTest():
-    # Read in the data previously collected from the Gannett API
-    df = pd.read_csv("gannett_data_test.csv")
+  
+def RunChatGPTScraper():
+    try:
+        scraper = None
+        df = None
+        
+        # Collect from the Gannett API: expected format is YYYY-MM-DD or YYYY-MM-DD_DD for multiple days
+        try:
+            dates = sys.argv[1]
+        except:
+            print("Need a date parameter after the filename in the form of YYYY-MM-DD or YYYY-MM-DD_DD for multiple days")
+            sys.exit(1)
+        
+        df, num_rows = BaseScraper.get_API_data(dates, "gpt")
 
-    # Create a scraper instance
-    scraper = ChatGPTScraper()
+        email, pwd = BaseScraper.get_login_creds("chatgpt")
 
-    # Prep the dataframe by adding the columns that will store the scraped data
-    df = scraper.prep_data(df)
+        # Create a scraper instance
+        scraper = ChatGPTScraper()
 
-    # The GPT username and password are the credentials for the ChatGPT site, use them to log in
-    gpt_username = ""
-    gpt_password = ""
+        # Prep the dataframe by adding the columns that will store the scraped data
+        df = scraper.prep_data(df)
 
-    scraper.login(gpt_username, gpt_password)
+        scraper._login(email, pwd, dates)
 
-    # Call the scraper on each row of the dataframe
-    df = df.apply(scraper.collect_data, axis=1)
+        # Call the scraper on each row of the dataframe
+        current_row = 1
+        for idx, row in df.iterrows():
+            df.loc[idx] = scraper._collect_data(row, current_row, dates)
+            print(f"Finished article {current_row} of {num_rows}. {round(float(current_row/num_rows) * 100, 1)} percent completed.")
+        
+            # Saves csv after every 50 article headlines 
+            if current_row % 50 == 0:
+                df.to_csv(f"gannett_gpt_{dates}.csv", index=False)
+                print(f"Progress snapshot saved to 'gannett_gpt_{dates}.csv'.")
 
-    # Close the scraper
-    scraper.close()
+            current_row += 1
 
-    # Output the results to a CSV file with the new columns
-    df.to_csv("gannett_data_test-chatgpt-scrape.csv", index=False)
+    # Catch any unhandled errors or user interrupts
+    except KeyboardInterrupt:
+        print("\nKeyboardInterrupt caught. Saving progress...")
 
-ChatGPTScraperTest()
+    except Exception as e:
+        print(f"\nEncountered the following error:\n{str(e)}\n\nSaving progress...")
+
+    # clean up and save
+    finally:
+        if scraper:
+            scraper.close()
+        
+        if df is not None:
+            df.to_csv(f"gannett_gpt_{dates}.csv", index=False)
+            print(f"'gannett_gpt_{dates}.csv' saved successfully.")
+
+if __name__ == "__main__":
+    RunChatGPTScraper()
