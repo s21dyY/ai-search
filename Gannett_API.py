@@ -41,7 +41,8 @@ class GannettAPI:
     def __init__(self):
         # Global variables
         self.api_url = "https://content-api.gannettdigital.com/assets"
-        self.api_key = "pTwrtp6P3rGYrU7uyN1Vm5IugAnT6jmr"
+        ## Add your API key here
+        self.api_key = ""
         
     # Grab data from a site based on a site code (listed above) and a date range as YYYY-MM-DD
     def _get_site_data_by_date(self, site_code, start_date, end_date, sample=None):

@@ -64,7 +64,7 @@ class BaseScraper:
     @staticmethod
     def get_login_creds(service: str):
         # hardcode your username/email here so you won't be asked each time a scraper runs
-        email = ""
+        email = "ameliejsutton@gmail.com"
 
         # as for a username/email if there isn't one hardcoded
         while email == "":

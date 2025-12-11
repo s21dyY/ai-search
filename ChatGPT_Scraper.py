@@ -51,19 +51,28 @@ class ChatGPTScraper(BaseScraper):
             self.driver.uc_click("button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.BqKGqe.Jskylb.TrZEUc.lw1w4b") 
             sleep(random.uniform(1, 3))
 
-            #CMU Andrew login username input
-            self.driver.send_keys("input#username", self.username)
+            # Inputs password into the password box
+            self.driver.send_keys("input[name='Passwd']", self.password)
             sleep(random.uniform(1, 3))
 
-            #CMU Andrew login password input
-            self.driver.send_keys("input#passwordinput", self.password)
+            # Next Button on Google Sign in Page
+            self.driver.uc_click("#passwordNext")
             sleep(random.uniform(1, 3))
 
-            #CMU Andrew login login button
-            self.driver.uc_click("input.loginbutton")
 
-            #CMU DUO Push "My Device" button
-            self.driver.uc_click("button#trust-browser-button.button--primary--full-width.button--primary.button--xlarge.size-margin-top-xlarge.size-margin-bottom-medium")
+            # #CMU Andrew login username input
+            # self.driver.send_keys("input#username", self.username)
+            # sleep(random.uniform(1, 3))
+
+            # #CMU Andrew login password input
+            # self.driver.send_keys("input#passwordinput", self.password)
+            # sleep(random.uniform(1, 3))
+
+            # #CMU Andrew login login button
+            # self.driver.uc_click("input.loginbutton")
+
+            # #CMU DUO Push "My Device" button
+            # self.driver.uc_click("button#trust-browser-button.button--primary--full-width.button--primary.button--xlarge.size-margin-top-xlarge.size-margin-bottom-medium")
             
             print("Logged into ChatGPT")
 
@@ -109,7 +118,8 @@ class ChatGPTScraper(BaseScraper):
             row["response_text"] = self._extract_response()
             
             # Open sources tab
-            self.driver.uc_click("button.not-prose.group\\/footnote")
+            # self.driver.uc_click("button.not-prose.group\\/footnote")
+            self.driver.uc_click("button.group\\/footnote")
             sleep(random.uniform(3, 5))
 
             # And then extract all of the source information broken into citations and search results
@@ -164,7 +174,7 @@ class ChatGPTScraper(BaseScraper):
         results = []
 
         # Find the section based on the header text
-        header_element = self.driver.find_element(By.XPATH, f"//div[text()='{header_text}']")
+        header_element = self.driver.find_element(By.XPATH, f"//li[text()='{header_text}']")
         section = header_element.find_element(By.XPATH, "..")
         links = section.find_elements(By.TAG_NAME, "a")
         
