@@ -27,24 +27,25 @@
 # PTCN - TC Palm (tcpalm.com)  
 # PWES - The Journal News (lohud.com)  
 # PWIL - The News Journal (delawareonline.com)  
-# USAT - USA TODAY (usatoday.com)  
-# 
+# USAT - USA TODAY (usatoday.com)
 
 # Imports
 import requests
+import sys
 import json
 import pandas as pd
-from datetime import datetime
+import re
 
 # This class wraps the Gannett API for getting content
 class GannettAPI:
     def __init__(self):
         # Global variables
         self.api_url = "https://content-api.gannettdigital.com/assets"
-        self.api_key = "FoOhYWDSfYo79SVysxvMTNCezUVyQIAf"
+        ## Add your API key here
+        self.api_key = ""
         
     # Grab data from a site based on a site code (listed above) and a date range as YYYY-MM-DD
-    def get_site_data_by_date(self, site_code, start_date, end_date, sample=None):
+    def _get_site_data_by_date(self, site_code, start_date, end_date, sample=None):
         headers = {'x-api-key': self.api_key,
             'content-type': 'application/json',
             'x-sitecode': 'USAT'}
@@ -85,33 +86,60 @@ class GannettAPI:
         df = pd.json_normalize(data)
         df.rename(columns={"pageURL.long": "pageURL", "classificationV2.section": "section", "classificationV2.subsection": "subsection"}, inplace=True)
         df['publishDate'] = pd.to_datetime(df['publishDate'], errors='coerce')
-        print (df.shape)
+        #print (df.shape)
         if sample is not None:
             return df.sample(sample, random_state=42)
         return df
 
-    # Collee data from multiple sites in a time frame
-    def get_sites_data_by_date(self,site_codes, start_date, end_date, sample=None):
+    # Collect data from multiple sites in a time frame
+    def _get_sites_data_by_date(self,site_codes, start_date, end_date, sample=None):
         df = None
         for s in site_codes:
-            df2 = self.get_site_data_by_date(s, start_date, end_date, sample)
+            try:
+                df2 = self._get_site_data_by_date(s, start_date, end_date, sample)
+            except:
+                print("API ERROR: Double check your dates")
+                sys.exit(1)
+
             if df is None:
                 df = df2
             else:
                 df = pd.concat([df, df2])
         return df
     
-    # Function demonstrates to to collect data from multiple sites in a time frame
-    def test_api(self):
-        # Example usage showing how to get data from multiple sites in a time frame, here sampled to a single random article from each
+    # Collect data from multiple sites in a time frame
+    def test_api(self, dates):
+        self._validate_input(dates)
+
+        # Update the site codes here
         site_codes = ["PDTF", "PPHX", "PMJS", "PNAS", "PIND", "PCIN", "NCOD", "PNJM", "PAPP", 
                     "NPPP", "NAAS", "PDEM", "NOKL", "PKNS", "PWIL", "PNDN", "PROC", "PLOU", "USAT"]
-        df = GannettAPI().get_sites_data_by_date(site_codes, "2024-12-09", "2024-12-10", sample=1)
-        # Note, to filter to investigations do something like this:
-        #df_investigations = df[(df['section']=="news") & (df["subsection"]=="investigations")].copy()
-        df.to_csv("gannett_data_test.csv", index=False)
-        print(df.head())    
+        
+        year, month, days = dates.split('-')
 
-GannettAPI().test_api()
-
-
+        if '_' in days:
+            return GannettAPI()._get_sites_data_by_date(site_codes, f"{year}-{month}-{days.split('_')[0]}", f"{year}-{month}-{days.split('_')[1]}").reset_index(drop=True)
+        else:
+            return GannettAPI()._get_sites_data_by_date(site_codes, f"{year}-{month}-{days}", f"{year}-{month}-{days}").reset_index(drop=True)
+    
+    @staticmethod
+    def _validate_input(dates):
+        # validate the expected input format of YYYY-MM-DD or YYYY-MM-DD_DD for multiple days
+        if not re.match(r'^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(_(0[1-9]|[12][0-9]|3[01]))?$', dates):
+            print("API ERROR: Date must be in YYYY-MM-DD or YYYY-MM-DD_DD for multiple days (e.g., 2025-04-07 or 2025-04-07_08)")
+            sys.exit(1)
+        elif '_' in dates:
+            if int(dates.split('-')[2].split('_')[0]) > int(dates.split('-')[2].split('_')[1]):
+                print("API ERROR: First day in the range must be before the second.")
+                sys.exit(1)
+            
+# can run the file directly to output data in a .csv, just specify the year, month and day: expected format YYYY-MM-DD or YYYY-MM-DD_DD for multiple days in one month
+if __name__ == "__main__":
+    try:
+        dates = sys.argv[1]
+    except:
+        print("Need a date parameter after the filename in the form of YYYY-MM-DD or YYYY-MM-DD_DD for multiple days")
+        sys.exit(1)
+        
+    GannettAPI().test_api(dates).to_csv(f"gannett_API_data_{dates}.csv", index=False)
+    print(f"'gannett_API_data_{dates}.csv' saved.")
