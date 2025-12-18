@@ -16,6 +16,7 @@ class PerplexityScraper(BaseScraper):
     def __init__(self):
         super().__init__()
         self.url = "https://www.perplexity.ai"
+        self.url_auth = "https://www.perplexity.ai/account"
 
     # Prep the dataframe by adding the columns that will store the scraped data
     def _prep_data(self, df):
@@ -30,8 +31,8 @@ class PerplexityScraper(BaseScraper):
         try:
             self.driver.uc_open(self.url)
             sleep(random.uniform(1, 2))
-            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.TAG_NAME, "textarea")))
-            textarea = self.driver.find_element(By.TAG_NAME, "textarea")
+            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.ID, "ask-input")))
+            textarea = self.driver.find_element(By.ID, "ask-input")
 
             # delete whatever was in the input box
             textarea.send_keys(Keys.CONTROL, "a")
@@ -63,15 +64,22 @@ class PerplexityScraper(BaseScraper):
             row["response_text"] = BaseScraper.remove_non_bmp(self.driver.find_element(By.CSS_SELECTOR, ".prose").get_attribute("innerHTML"))
 
             # click the sources button
-            self.driver.click(By.CSS_SELECTOR, "[data-testid='answer-mode-tabs-tab-sources']")
+            self.driver.click(By.XPATH, "//button[.//div[contains(normalize-space(), 'sources')]]")
 
             # get the number of sources (based on number next to the sources button)
-            sources_num = int(self.driver.find_element(By.TAG_NAME, "number-flow-react").get_attribute("aria-label"))
+            xpath = "//button[.//div[contains(normalize-space(), 'sources')]]//div[contains(normalize-space(), 'sources')]"
+
+            sources_el = WebDriverWait(self.driver, 10).until(EC.visibility_of_element_located((By.XPATH, xpath)))
+
+            sources_text = sources_el.text.strip()
+            sources_num = int(sources_text.split()[0])
+            # sources_num = int(self.driver.find_element(By.TAG_NAME, "number-flow-react").get_attribute("aria-label"))
             row["number_of_sources"] = sources_num
 
             # get the link for each source (cut off after tld)
             sites_visited = []
-            sources = self.driver.find_elements(By.CSS_SELECTOR, 'div.gap-md.relative.items-start div.gap-sm.flex.flex-row.items-center div.line-clamp-1.font-sans.text-xs.text-textOff')
+            sources = self.driver.find_elements(By.CSS_SELECTOR, 'a.group.flex.size-full.cursor-pointer.items-stretch')
+
             try:
                 for i in range(sources_num):
                     site = sources[i].text.split('/')[0]
