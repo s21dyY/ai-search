@@ -1,7 +1,9 @@
 # Scraping using method from here: https://www.zenrows.com/blog/selenium-cloudflare-bypass#seleniumbase
 # Selenium base API for reference: https://seleniumbase.io/help_docs/method_summary/#seleniumbase-methods-api-reference
 
+from logging import disable
 from seleniumbase import Driver
+import tempfile
 import pandas as pd
 import keyring
 import Set_Password
@@ -14,14 +16,25 @@ from Gannett_API import GannettAPI
 # includes functionality that both scrapers use
 class BaseScraper:
     def __init__(self):
+        profile_dir = tempfile.mkdtemp()  # fresh per run; causes first-run unless we suppress it
         # Set headless=False for debug and remove the --headless=new option so you can see what's happening in the browser
-        self.driver = Driver(uc=True, headless=True, chromium_arg=[
+        self.driver = Driver(uc=True, headless=True, user_data_dir=profile_dir, chromium_arg=[
             "--headless=new",
+            "--guest",
             "--disable-gpu",
             "--no-sandbox",
             "--disable-dev-shm-usage",
-            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-            ])
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-search-engine-choice-screen",
+            "--disable-notifications",
+            "--disable-infobars",
+            "--disable-extensions",
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "--disable-features=SigninInterception",
+            "--disable-sync",
+            "--disable-default-apps",
+             ])
 
         self.driver.set_window_size(1920, 2400)
         self.driver.set_page_load_timeout(30)

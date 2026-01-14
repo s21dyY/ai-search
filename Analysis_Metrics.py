@@ -7,7 +7,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from nltk.util import ngrams
 
 # === CONFIGURATION ===
-input_path = "Gannett_perplexity_2024-06-07.csv"  # Change this to your file
+input_path = "Gannett_gpt_2025-10-30.csv"  # Change this to your file
 # allowable file names: Gannett_[model]_[YYYY]-[MM]-[DD].csv or Gannett_[model]_[YYYY]-[MM]-[DD]_[DD].csv to specify a range
 
 min_word_threshold = 50
