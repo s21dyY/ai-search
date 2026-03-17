@@ -86,7 +86,8 @@ class GannettAPI:
         df = pd.json_normalize(data)
         df.rename(columns={"pageURL.long": "pageURL", "classificationV2.section": "section", "classificationV2.subsection": "subsection"}, inplace=True)
         df['publishDate'] = pd.to_datetime(df['publishDate'], errors='coerce')
-        #print (df.shape)
+        print ("Num Items:", df.shape)
+        
         if sample is not None:
             return df.sample(sample, random_state=42)
         return df
@@ -97,8 +98,8 @@ class GannettAPI:
         for s in site_codes:
             try:
                 df2 = self._get_site_data_by_date(s, start_date, end_date, sample)
-            except:
-                print("API ERROR: Double check your dates")
+            except Exception as e:
+                print(f"API ERROR: Double check your dates. Error: {e}")
                 sys.exit(1)
 
             if df is None:
@@ -112,15 +113,16 @@ class GannettAPI:
         self._validate_input(dates)
 
         # Update the site codes here
-        site_codes = ["PDTF", "PPHX", "PMJS", "PNAS", "PIND", "PCIN", "NCOD", "PNJM", "PAPP", 
-                    "NPPP", "PDEM", "NOKL", "PKNS", "PWIL", "PNDN", "PROC", "PLOU", "USAT"]
+        #site_codes = ["PDTF", "PPHX", "PMJS", "PNAS", "PIND", "PCIN", "NCOD", "PNJM", "PAPP", 
+        #            "NPPP", "PDEM", "NOKL", "PKNS", "PWIL", "PNDN", "PROC", "PLOU", "USAT"]
+        site_codes = ["USAT"]
         
         year, month, days = dates.split('-')
 
         if '_' in days:
-            return GannettAPI()._get_sites_data_by_date(site_codes, f"{year}-{month}-{days.split('_')[0]}", f"{year}-{month}-{days.split('_')[1]}").reset_index(drop=True)
+            return GannettAPI()._get_sites_data_by_date(site_codes, f"{year}-{month}-{days.split('_')[0]}", f"{year}-{month}-{days.split('_')[1]}").reset_index(drop=True) # type: ignore
         else:
-            return GannettAPI()._get_sites_data_by_date(site_codes, f"{year}-{month}-{days}", f"{year}-{month}-{days}").reset_index(drop=True)
+            return GannettAPI()._get_sites_data_by_date(site_codes, f"{year}-{month}-{days}", f"{year}-{month}-{days}").reset_index(drop=True) #type: ignore
     
     @staticmethod
     def _validate_input(dates):
@@ -141,7 +143,7 @@ if __name__ == "__main__":
         print("Need a date parameter after the filename in the form of YYYY-MM-DD or YYYY-MM-DD_DD for multiple days")
         sys.exit(1)
 
-    OUTPUT_DIR = Path("/Users/ASutton/dev/llm-evidence-gathering")
+    OUTPUT_DIR = Path("./data/")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     output_path = OUTPUT_DIR / f"gannett_API_data_{dates}.csv"    

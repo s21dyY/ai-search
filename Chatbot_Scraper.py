@@ -2,6 +2,7 @@
 # Selenium base API for reference: https://seleniumbase.io/help_docs/method_summary/#seleniumbase-methods-api-reference
 
 from logging import disable
+from pathlib import Path
 from seleniumbase import Driver
 import tempfile
 import pandas as pd
@@ -62,9 +63,10 @@ class BaseScraper:
     @staticmethod
     def get_API_data(dates: str, service: str):
         
-        # df = GannettAPI().test_api(dates)
+        #df = GannettAPI().test_api(dates) # type: ignore
         # use the line below instead of the one above to read from a .csv rather than directly pulling from the API with the given date
-        df = pd.read_csv(f"gannett_API_data_{dates}.csv")
+        OUTPUT_DIR = Path("./data/")
+        df = pd.read_csv(OUTPUT_DIR / f"gannett_API_data_{dates}.csv")
         
         os.makedirs(f'{os.getcwd()}/screenshots_{service}_{dates}/Errors', exist_ok=True)
         
@@ -77,7 +79,8 @@ class BaseScraper:
     @staticmethod
     def get_login_creds(service: str):
         # hardcode your username/email here so you won't be asked each time a scraper runs
-        email = "lifeispoetry1@gmail.com"
+        #email = "lifeispoetry1@gmail.com"
+        email = ""
 
         # as for a username/email if there isn't one hardcoded
         while email == "":

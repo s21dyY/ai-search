@@ -30,7 +30,7 @@ class ChatGPTScraper(BaseScraper):
     # Login to the ChatGPT site using CMU auth
     def _login(self, usern, pwd, dates):
         try:
-            super()._login(username = usern, password = pwd)
+            super()._login(username = usern, password = pwd) # type: ignore
 
             self.driver.uc_open_with_reconnect(self.url_auth, reconnect_time=4)
             sleep(random.uniform(1, 3))
@@ -91,7 +91,7 @@ class ChatGPTScraper(BaseScraper):
             textarea.send_keys(Keys.CONTROL, "a")
             textarea.send_keys(Keys.BACKSPACE)
 
-            self.driver.send_keys("div#prompt-textarea.ProseMirror  ", BaseScraper.remove_non_bmp(query))
+            self.driver.send_keys("div#prompt-textarea.ProseMirror  ", BaseScraper.remove_non_bmp(query)) # type: ignore
             sleep(random.uniform(1, 3))
             request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.driver.send_keys("#prompt-textarea", Keys.ENTER)
@@ -212,9 +212,9 @@ def RunChatGPTScraper():
             print("Need a date parameter after the filename in the form of YYYY-MM-DD or YYYY-MM-DD_DD for multiple days")
             sys.exit(1)
         
-        df, num_rows = BaseScraper.get_API_data(dates, "gpt")
+        df, num_rows = BaseScraper.get_API_data(dates, "gpt") # type: ignore
 
-        email, pwd = BaseScraper.get_login_creds("chatgpt")
+        email, pwd = BaseScraper.get_login_creds("chatgpt") # type: ignore
 
         # Create a scraper instance
         scraper = ChatGPTScraper()
