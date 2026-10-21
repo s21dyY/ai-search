@@ -8,6 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import json
 import sys
+from Prompt_Generator import PromptGenerator
 
 class ChatGPTScraper(BaseScraper):
     def __init__(self):
@@ -109,8 +110,11 @@ class ChatGPTScraper(BaseScraper):
         # added a delay here so we don't hit the gpt-4o limit of 80 messages / 3 hrs. 
         sleep(random.uniform(20, 30))
         try:
-            # Send the prompt to ChatGPT
-            PROMPT = f'Tell me about "{row["headline"]}"'
+            # Generate a natural-language prompt from the headline + keywords
+            PROMPT = self.prompt_generator.generate(
+                row["headline"],
+                row.get("keywords", "") or "",
+            )
             row["request_time"] = self._query_chatgpt(PROMPT, row_num, dates)
             row["prompt"] = PROMPT
 
@@ -218,6 +222,7 @@ def RunChatGPTScraper():
 
         # Create a scraper instance
         scraper = ChatGPTScraper()
+        scraper.prompt_generator = PromptGenerator()
 
         # Prep the dataframe by adding the columns that will store the scraped data
         df = scraper.prep_data(df)

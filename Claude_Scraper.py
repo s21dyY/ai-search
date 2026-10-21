@@ -9,6 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import json
 import sys
+from Prompt_Generator import PromptGenerator
 
 class ClaudeScraper(BaseScraper):
     def __init__(self):
@@ -120,8 +121,11 @@ class ClaudeScraper(BaseScraper):
     def _collect_data(self, row, row_num, dates):
         # added a delay here to avoid hitting rate limits
         try:
-            # Send the prompt to Claude
-            PROMPT = f'Tell me about "{row["headline"]}"'
+            # Generate a natural-language prompt from the headline + keywords
+            PROMPT = self.prompt_generator.generate(
+                row["headline"],
+                row.get("keywords", "") or "",
+            )
             row["request_time"] = self._query_claude(PROMPT, row_num, dates)
             row["prompt"] = PROMPT
 
@@ -290,6 +294,7 @@ def RunClaudeScraper():
 
         # Create a scraper instance
         scraper = ClaudeScraper()
+        scraper.prompt_generator = PromptGenerator()
 
         # Prep the dataframe by adding the columns that will store the scraped data
         df = scraper.prep_data(df) # type: ignore

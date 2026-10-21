@@ -10,6 +10,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import sys
 from Chatbot_Scraper import BaseScraper
+from Prompt_Generator import PromptGenerator
 
 # Perplexity scraper
 class PerplexityScraper(BaseScraper):
@@ -54,8 +55,11 @@ class PerplexityScraper(BaseScraper):
     def _collect_data(self, row, row_num, dates):
         sleep(random.uniform(30, 35))
         try:
-            # Send the prompt
-            PROMPT = f'Tell me about "{row["headline"]}"'
+            # Generate a natural-language prompt from the headline + keywords
+            PROMPT = self.prompt_generator.generate(
+                row["headline"],
+                row.get("keywords", "") or "",
+            )
             row["request_time"] = self._query_perplexity(PROMPT, row_num, dates)
             row["prompt"] = PROMPT
 
@@ -128,6 +132,7 @@ def RunPerplexityScraper():
         df, num_rows = BaseScraper.get_API_data(dates, "perplexity")
 
         scraper = PerplexityScraper()
+        scraper.prompt_generator = PromptGenerator()
 
         # Prep the dataframe by adding the columns that will store the scraped data
         df = scraper._prep_data(df)
@@ -144,6 +149,7 @@ def RunPerplexityScraper():
                     scraper.close()
                     sleep(random.uniform(60, 65))
                     scraper = PerplexityScraper()
+                    scraper.prompt_generator = PromptGenerator()
                     sleep(random.uniform(60, 65))
 
                     # Retry once
