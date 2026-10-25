@@ -1,7 +1,7 @@
 """
 Capture DOM snapshots of ChatGPT / Perplexity in guest mode at the moments the
 queue worker needs to recognise, by driving the real scraper classes. So this
-also smoke-tests chatgpt_scraper.py / perplexity_scraper.py.
+also smoke-tests scraper/chatgpt_scraper.py and scraper/perplexity_scraper.py.
 
 Run from the repo root with the project venv:
 
@@ -22,8 +22,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from chatgpt_scraper import ChatGPTScraper        # noqa: E402
-from perplexity_scraper import PerplexityScraper  # noqa: E402
+from scraper.chatgpt_scraper import ChatGPTScraper        # noqa: E402
+from scraper.perplexity_scraper import PerplexityScraper  # noqa: E402
 
 TARGETS = {"chatgpt": ChatGPTScraper, "perplexity": PerplexityScraper}
 

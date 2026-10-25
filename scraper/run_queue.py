@@ -1,13 +1,13 @@
 """
-run_queue.py
+scraper/run_queue.py
 ------------
 Parallel runner (orchestrator). Enqueues one task per article, starts one worker
 process per account, keeps them alive, and exports CSVs when the queue is done.
 Restarting it resumes from the queue: finished tasks are not re-run.
 
-    python run_queue.py --model chatgpt --dates 2026-10-20
-    python run_queue.py --model perplexity --dates 2026-10-20 --limit 20
-    python run_queue.py --model chatgpt --dates 2026-10-20 --guest-workers 2   # no accounts
+    python -m scraper.run_queue --model chatgpt --dates 2026-10-20
+    python -m scraper.run_queue --model perplexity --dates 2026-10-20 --limit 20
+    python -m scraper.run_queue --model chatgpt --dates 2026-10-20 --guest-workers 2   # no accounts
 
 Workers = the accounts in accounts.toml that list this model (or --accounts a,b).
 Input:   data/gannett_API_data_{dates}.csv  (or --input PATH)
@@ -28,7 +28,8 @@ import sys
 import time
 from pathlib import Path
 
-import queue_db as q
+from . import queue_db as q
+from .scraper_base import ROOT
 
 DEFAULTS = {
     #                 chatgpt  perplexity
@@ -41,7 +42,7 @@ def build_prompts(articles: list[dict], use_generator: bool = True) -> None:
     gen = None
     if use_generator:
         try:
-            from Prompt_Generator import PromptGenerator
+            from ingest.Prompt_Generator import PromptGenerator
             gen = PromptGenerator()
         except Exception as e:
             print(f"PromptGenerator unavailable ({str(e)[:80]}); using the fallback template.")
@@ -67,7 +68,8 @@ class Worker:
     def start(self):
         log = open(self.log_path, "a", buffering=1)
         # New session = own process group, so its Chrome children can be killed together.
-        self.proc = subprocess.Popen(self.cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        self.proc = subprocess.Popen(self.cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+                                     cwd=str(ROOT))
 
     def kill_tree(self):
         if self.proc and self.proc.poll() is None:
@@ -108,7 +110,7 @@ def main():
     a = p.parse_args()
 
     # --- workers ---
-    from accounts import load_accounts
+    from .accounts import load_accounts
     accts = load_accounts(service=a.model)
     if a.accounts:
         wanted = [x.strip() for x in a.accounts.split(",") if x.strip()]
@@ -126,7 +128,7 @@ def main():
     # --- queue ---
     dbp = q.db_path(a.model, a.dates)
     con = q.connect(dbp)
-    in_path = Path(a.input) if a.input else Path("data") / f"gannett_API_data_{a.dates}.csv"
+    in_path = Path(a.input) if a.input else ROOT / "data" / f"gannett_API_data_{a.dates}.csv"
     articles = q.load_articles(in_path)
     if a.limit:
         articles = articles[: a.limit]
@@ -145,12 +147,12 @@ def main():
         return 0
 
     # --- start workers, staggered ---
-    logs = Path("data") / f"logs_{a.model}_{a.dates}"
+    logs = ROOT / "data" / f"logs_{a.model}_{a.dates}"
     logs.mkdir(parents=True, exist_ok=True)
     blocked_pause = a.blocked_pause if a.blocked_pause is not None else DEFAULTS["blocked_pause"][a.model]
     workers = []
     for wid, acct in slots:
-        cmd = [sys.executable, "worker.py", "--db", str(dbp), "--model", a.model, "--dates", a.dates,
+        cmd = [sys.executable, "-m", "scraper.worker", "--db", str(dbp), "--model", a.model, "--dates", a.dates,
                "--worker-id", wid, "--max-tries", str(a.max_tries), "--retry-cooldown", str(a.retry_cooldown),
                "--blocked-pause", str(blocked_pause)]
         if acct:
@@ -185,7 +187,7 @@ def main():
                 elif code == 3:
                     w.stopped = True
                     print(f"{w.wid} stopped: login for '{w.account}' needs a person "
-                          f"(python {a.model}_scraper.py --login --profile {w.account})")
+                          f"(python -m scraper.{a.model}_scraper --login --profile {w.account})")
                 elif w.restarts >= a.max_restarts:
                     w.stopped = True
                     print(f"{w.wid} exited with {code}; restart limit reached, giving up on it")

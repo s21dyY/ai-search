@@ -24,7 +24,8 @@ if sys.version_info >= (3, 11):
 else:  # pragma: no cover
     import tomli as tomllib  # type: ignore
 
-DEFAULT_PATH = Path(os.environ.get("SCRAPER_ACCOUNTS", "accounts.toml"))
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PATH = Path(os.environ.get("SCRAPER_ACCOUNTS", ROOT / "accounts.toml"))
 
 LOGIN_METHODS = {
     # method:  services it works for

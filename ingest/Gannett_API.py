@@ -143,7 +143,7 @@ if __name__ == "__main__":
         print("Need a date parameter after the filename in the form of YYYY-MM-DD or YYYY-MM-DD_DD for multiple days")
         sys.exit(1)
 
-    OUTPUT_DIR = Path("/Users/ASutton/dev/ai-search")
+    OUTPUT_DIR = Path(__file__).resolve().parents[1] / "data"   # repo data/ (gitignored)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     output_path = OUTPUT_DIR / f"gannett_API_data_{dates}.csv"    

@@ -1,8 +1,8 @@
 """
 queue_db.py
 -----------
-SQLite task queue shared by the orchestrator (run_queue.py) and the workers
-(worker.py). One database per model and date: data/queue_{model}_{dates}.db.
+SQLite task queue shared by the orchestrator (scraper/run_queue.py) and the workers
+(scraper/worker.py). One database per model and date: data/queue_{model}_{dates}.db.
 
 Design: local-docs/prd-parallel-runs-and-retries.md sections 5 and 6.
 
@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 
 import pandas as pd
+
+ROOT = Path(__file__).resolve().parents[1]          # repo root
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -83,7 +85,7 @@ ATTEMPT_FIELDS = [
 
 
 def db_path(model: str, dates: str) -> Path:
-    return Path("data") / f"queue_{model}_{dates}.db"
+    return ROOT / "data" / f"queue_{model}_{dates}.db"
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -236,9 +238,9 @@ def give_back(con, task_id: int, worker_id: str, error: str):
 
 # -- export ---------------------------------------------------------------------
 
-def export(con, model: str, dates: str, out_dir: str | Path = "data") -> tuple[Path, Path]:
+def export(con, model: str, dates: str, out_dir: str | Path | None = None) -> tuple[Path, Path]:
     """raw: every attempt joined with its task. clean: one row per done task (last done attempt)."""
-    out_dir = Path(out_dir)
+    out_dir = Path(out_dir) if out_dir else ROOT / "data"
     raw = pd.read_sql_query(
         "SELECT t.id AS task_id, t.article_url AS pageURL, t.headline, t.keywords, t.publish_date,"
         " t.section, t.prompt, t.prompt_source, t.status AS task_status, t.tries, t.stuck_count,"

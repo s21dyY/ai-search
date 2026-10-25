@@ -1,10 +1,10 @@
 """
-worker.py
+scraper/worker.py
 ---------
 One queue worker: one browser, one account (or guest), pulls tasks until the queue
-is empty. Started by run_queue.py; can also be run by hand for debugging:
+is empty. Started by scraper/run_queue.py; can also be run by hand for debugging:
 
-    python worker.py --db data/queue_chatgpt_2026-10-20.db --model chatgpt --worker-id w1 --account acct1
+    python -m scraper.worker --db data/queue_chatgpt_2026-10-20.db --model chatgpt --worker-id w1 --account acct1
 
 Loop (PRD 5.2): claim -> throttle -> run_one -> classify -> record -> repeat.
 """
@@ -12,13 +12,14 @@ Loop (PRD 5.2): claim -> throttle -> run_one -> classify -> record -> repeat.
 from __future__ import annotations
 
 import argparse
+import importlib
 import random
 import sys
 import time
 from pathlib import Path
 
-import queue_db as q
-from scraper_base import (BadInputError, BlockedError, LoginChallenge, RetryableError,
+from . import queue_db as q
+from .scraper_base import (ROOT, BadInputError, BlockedError, LoginChallenge, RetryableError,
                           ScraperError, match_sources)
 
 SCRAPERS = {
@@ -33,7 +34,7 @@ def log(worker_id: str, msg: str):
 
 def make_scraper(model: str, account: str | None, headless: bool):
     mod, cls = SCRAPERS[model]
-    module = __import__(mod)
+    module = importlib.import_module(f"scraper.{mod}")
     return getattr(module, cls)(headless=headless, profile=account)
 
 
@@ -54,7 +55,7 @@ def main():
     wid, acct = a.worker_id, a.account
     acct_label = acct or "guest"
     con = q.connect(a.db)
-    shots = Path("data") / f"screenshots_{a.model}_{a.dates}"
+    shots = ROOT / "data" / f"screenshots_{a.model}_{a.dates}"
     (shots / "Errors").mkdir(parents=True, exist_ok=True)
 
     scraper = None

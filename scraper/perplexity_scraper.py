@@ -1,5 +1,5 @@
 """
-perplexity_scraper.py
+scraper/perplexity_scraper.py
 ---------------------
 Perplexity scraper, logged out (guest). Default "Search" mode always searches the
 web, so no toggle is needed.
@@ -10,7 +10,7 @@ wait_for_answer() still works because it also relies on answer text stability.
 Verify against local-docs/page-samples/perplexity/ once captured.
 
 Usage (single thread):
-    python perplexity_scraper.py 2026-10-20 [--headful] [--limit 5]
+    python -m scraper.perplexity_scraper 2026-10-20 [--headful] [--limit 5]
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
-from scraper_base import BaseScraper, BlockedError, RetryableError, cli, remove_non_bmp
+from .scraper_base import BaseScraper, BlockedError, RetryableError, cli, remove_non_bmp
 
 
 class PerplexityScraper(BaseScraper):
@@ -82,6 +82,29 @@ class PerplexityScraper(BaseScraper):
         if self.profile and not self.is_logged_in():
             self.ensure_logged_in()                  # automatic login from accounts.toml
             self.wait_until(lambda: self.exists(self.INPUT), timeout=20, poll=0.5)
+        self.dismiss_popups()
+
+    # Promotional modals and the cookie banner cover the input box (seen 2026-10-25:
+    # "Computer is available for you to try" with "Maybe later"). Close them.
+    POPUP_BUTTONS = [
+        "//button[normalize-space(.)='Maybe later']",
+        "//button[normalize-space(.)='Not now']",
+        "//button[normalize-space(.)='No thanks']",
+        "//button[normalize-space(.)='Decline optional']",
+        "//button[normalize-space(.)='Got it']",
+        "//button[normalize-space(.)='Dismiss']",
+    ]
+
+    def dismiss_popups(self, rounds: int = 3):
+        for _ in range(rounds):
+            btn, _ = self.find_first(self.POPUP_BUTTONS, visible=True)
+            if btn is None:
+                return
+            try:
+                self.driver.execute_script("arguments[0].click()", btn)
+            except Exception:
+                pass
+            time.sleep(0.6)
 
     def click_continue_with_google(self):
         """Sign In -> 'Continue with Google' (verified 2026-10-25; same window, no popup)."""
@@ -105,10 +128,15 @@ class PerplexityScraper(BaseScraper):
         self.wait_until(lambda: "accounts.google.com" in self.driver.current_url, timeout=20, poll=0.5)
 
     def ask(self, prompt: str) -> str:
+        self.dismiss_popups()
         box, _ = self.find_first(self.INPUT, visible=True)
         if box is None:
             raise RetryableError("input box disappeared")
-        box.click()
+        try:
+            box.click()
+        except Exception:                        # something still overlays the box
+            self.dismiss_popups()
+            self.driver.execute_script("arguments[0].focus()", box)
         box.send_keys(Keys.CONTROL, "a")
         box.send_keys(Keys.BACKSPACE)
         box.send_keys(remove_non_bmp(prompt))

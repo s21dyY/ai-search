@@ -1,7 +1,7 @@
 """
 scraper_base.py
 ---------------
-Shared base for the guest-mode scrapers (chatgpt_scraper.py, perplexity_scraper.py).
+Shared base for the scrapers (scraper/chatgpt_scraper.py, scraper/perplexity_scraper.py).
 
 Design, see local-docs/prd-parallel-runs-and-retries.md sections 5 and 7:
 
@@ -11,7 +11,7 @@ Design, see local-docs/prd-parallel-runs-and-retries.md sections 5 and 7:
 - Failures are raised as typed exceptions (RetryableError, BlockedError,
   BadInputError) instead of being printed and swallowed.
 - run_one(prompt) drives all steps for one prompt and returns a ScrapeResult.
-- run_csv() is the single-thread runner behind `python chatgpt_scraper.py <dates>`.
+- run_csv() is the single-thread runner behind `python -m scraper.chatgpt_scraper <dates>`.
   The queue runner from the PRD will call run_one() directly.
 
 No login anywhere. Both targets are used as a logged-out guest.
@@ -40,11 +40,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from seleniumbase import Driver
 
-DATA_DIR = Path("data")
+ROOT = Path(__file__).resolve().parents[1]          # repo root
+DATA_DIR = ROOT / "data"
 
 # One Chrome profile per account, e.g. profiles/mj/. Created by `--login --profile mj`.
 # The profile holds the session cookies, so it IS the credential: gitignored, never shared.
-PROFILES_DIR = Path("profiles")
+PROFILES_DIR = ROOT / "profiles"
 
 
 # ----------------------------------------------------------------------------
@@ -221,7 +222,7 @@ class BaseScraper:
         self.profile = profile
         if account is None and profile:
             try:
-                from accounts import get_account
+                from .accounts import get_account
                 account = get_account(profile, self.name)
             except Exception as e:
                 print(f"  [{self.name}] accounts file not usable: {e}")
@@ -429,7 +430,7 @@ class BaseScraper:
         if self.account is None:
             raise BlockedError(
                 f"profile '{self.profile}' is not logged in and has no entry in accounts.toml; "
-                f"add one, or run: python {self.name}_scraper.py --login --profile {self.profile}")
+                f"add one, or run: python -m scraper.{self.name}_scraper --login --profile {self.profile}")
         print(f"  [{self.name}] profile '{self.profile}' has no session; logging in as {self.account.email}")
         self.auto_login(self.account, interactive=interactive)
         self.focus_main_window()
@@ -587,7 +588,7 @@ class BaseScraper:
 
     def _human_step(self, what: str, interactive: bool):
         if not interactive or self.headless:
-            raise LoginChallenge(f"{what}. Run: python {self.name}_scraper.py --login --profile {self.profile}")
+            raise LoginChallenge(f"{what}. Run: python -m scraper.{self.name}_scraper --login --profile {self.profile}")
         print(f"\n{what}.")
         input("Finish it in the browser window, then press Enter here... ")
 
@@ -685,7 +686,7 @@ class BaseScraper:
 
 
 # ----------------------------------------------------------------------------
-# Single-thread runner (today's `python <scraper>.py <dates>` behaviour)
+# Single-thread runner (today's `python -m scraper.<site>_scraper <dates>` behaviour)
 # ----------------------------------------------------------------------------
 
 OUTPUT_COLUMNS = [
@@ -741,7 +742,7 @@ def run_csv(scraper_cls: type[BaseScraper], dates: str, headless: bool = True,
     data/gannett_{name}_{dates}.csv after every article. No retries here; the
     queue runner handles those. A blocked page restarts the browser and pauses.
     """
-    from Prompt_Generator import PromptGenerator  # needs OPENAI_API_KEY; import lazily
+    from ingest.Prompt_Generator import PromptGenerator  # needs OPENAI_API_KEY; import lazily
 
     name = scraper_cls.name
     in_path = DATA_DIR / f"gannett_API_data_{dates}.csv"
@@ -809,13 +810,13 @@ def run_csv(scraper_cls: type[BaseScraper], dates: str, headless: bool = True,
 def cli(scraper_cls: type[BaseScraper]):
     """
     Shared command line.
-      python <scraper>.py --login --profile mj          log in once by hand, save the session
-      python <scraper>.py 2026-10-20 --profile mj       run logged in with that profile
-      python <scraper>.py 2026-10-20                    run as a logged-out guest
+      python -m scraper.<site>_scraper --login --profile mj          log in once by hand, save the session
+      python -m scraper.<site>_scraper 2026-10-20 --profile mj       run logged in with that profile
+      python -m scraper.<site>_scraper 2026-10-20                    run as a logged-out guest
     Options: --headful (visible browser), --limit N (first N articles).
     """
     import argparse
-    p = argparse.ArgumentParser(prog=f"{scraper_cls.name}_scraper.py")
+    p = argparse.ArgumentParser(prog=f"python -m scraper.{scraper_cls.name}_scraper")
     p.add_argument("dates", nargs="?", help="YYYY-MM-DD or YYYY-MM-DD_DD")
     p.add_argument("--profile", help="account name from accounts.toml, or a profile under profiles/")
     p.add_argument("--login", action="store_true", help="log the profile in (automatic if in accounts.toml), then exit")
@@ -825,7 +826,7 @@ def cli(scraper_cls: type[BaseScraper]):
     a = p.parse_args()
 
     if a.login_all:
-        from accounts import load_accounts
+        from .accounts import load_accounts
         accts = load_accounts(service=scraper_cls.name)
         if not accts:
             p.error(f"no accounts for {scraper_cls.name} in accounts.toml")

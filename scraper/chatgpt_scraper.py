@@ -1,5 +1,5 @@
 """
-chatgpt_scraper.py
+scraper/chatgpt_scraper.py
 ------------------
 ChatGPT scraper for https://chatgpt.com/ in either of two modes, chosen at runtime
 by which frontend the page loads:
@@ -39,9 +39,9 @@ Guest-page facts (verified):
   consulted; the logged-in "More" list has no guest equivalent.
 
 Usage (single thread):
-    python chatgpt_scraper.py --login --profile mj
-    python chatgpt_scraper.py 2026-10-20 --profile mj [--headful] [--limit 5]
-    python chatgpt_scraper.py 2026-10-20                 (guest)
+    python -m scraper.chatgpt_scraper --login --profile mj
+    python -m scraper.chatgpt_scraper 2026-10-20 --profile mj [--headful] [--limit 5]
+    python -m scraper.chatgpt_scraper 2026-10-20                 (guest)
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ from urllib.parse import unquote
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
-from scraper_base import (BaseScraper, BlockedError, LoginChallenge, RetryableError, cli,
+from .scraper_base import (BaseScraper, BlockedError, LoginChallenge, RetryableError, cli,
                           normalize_url, remove_non_bmp)
 
 # Selector sets. Each value is an ordered candidate list; the first match wins.

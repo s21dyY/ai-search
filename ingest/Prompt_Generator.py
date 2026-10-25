@@ -11,7 +11,7 @@ template. This produces more varied, realistic queries that better reflect
 how real users would search for the same story.
 
 Usage:
-    from Prompt_Generator import PromptGenerator
+    from ingest.Prompt_Generator import PromptGenerator
 
     pg = PromptGenerator()                     # reads OPENAI_API_KEY from env
     prompt = pg.generate(row["headline"], row["keywords"])
