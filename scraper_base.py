@@ -83,10 +83,16 @@ class ScrapeResult:
     response_plain: str = ""           # answer as visible text
     searched: int = 0                  # 1 if the model showed any sources
     citations: list = field(default_factory=list)       # [{url, headline, snippet}]
-    search_results: list = field(default_factory=list)  # same shape; ChatGPT "More" list
+    search_results: list = field(default_factory=list)  # pages the model retrieved (cited or not)
+    images: list = field(default_factory=list)          # image-search cards shown in the answer
+    # Whether search_results could be read: "ok", "none" (captured, no search ran),
+    # "capture_failed" (response not readable), "n/a" (target has no such list).
+    search_results_status: str = "n/a"
     screenshot_path: str = ""
 
     def to_row(self) -> dict:
+        cited = {normalize_url(c.get("url", "")) for c in self.citations if c.get("url")}
+        not_cited = [s for s in self.search_results if normalize_url(s.get("url", "")) not in cited]
         return {
             "prompt": self.prompt,
             "request_time": self.request_time,
@@ -95,6 +101,11 @@ class ScrapeResult:
             "searched": self.searched,
             "response_citations": json.dumps(self.citations, ensure_ascii=False),
             "response_search_results": json.dumps(self.search_results, ensure_ascii=False),
+            "response_images": json.dumps(self.images, ensure_ascii=False),
+            "n_citations": len(self.citations),
+            "n_search_results": len(self.search_results),
+            "n_search_results_not_cited": len(not_cited),
+            "search_results_status": self.search_results_status,
             "screenshot_path": self.screenshot_path,
         }
 
@@ -156,7 +167,9 @@ def match_sources(sources: list, article_url: str, headline: str) -> tuple[int, 
             continue
         if "wikipedia.org" in (u or dom):
             continue
-        if title and headline and (title in headline or overlap >= 0.6) and dom != target_domain:
+        # 0.8: syndicated copies (e.g. Yahoo) reuse the headline nearly verbatim;
+        # other outlets' own stories on the same event score ~0.6-0.7 (checked 2026-10-25).
+        if title and headline and (title in headline or overlap >= 0.8) and dom != target_domain:
             republisher = 1
     return original, republisher
 
@@ -379,6 +392,10 @@ class BaseScraper:
         """Returns (citations, search_results)."""
         raise NotImplementedError
 
+    def collect_extras(self, result: "ScrapeResult"):
+        """Hook for target-specific fields (images, search_results from the network)."""
+        return None
+
     # -- completion check, PRD section 5.3 -----------------------------------
 
     def wait_for_answer(self):
@@ -430,6 +447,7 @@ class BaseScraper:
             result.response_plain = self.answer_text()
             if self.has_sources():
                 result.citations, result.search_results = self.extract_sources()
+            self.collect_extras(result)
             result.searched = 1 if (result.citations or result.search_results) else 0
             return result
         except ScraperError:
@@ -445,7 +463,8 @@ class BaseScraper:
 
 OUTPUT_COLUMNS = [
     "prompt", "request_time", "response_text", "response_plain", "searched",
-    "response_citations", "response_search_results",
+    "response_citations", "response_search_results", "response_images",
+    "n_citations", "n_search_results", "n_search_results_not_cited", "search_results_status",
     "original_in_citations", "original_in_search_results",
     "republisher_in_citations", "republisher_in_search_results",
     "screenshot_path", "status", "error",

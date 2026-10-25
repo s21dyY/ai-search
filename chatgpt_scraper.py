@@ -46,6 +46,7 @@ Usage (single thread):
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from datetime import datetime
@@ -242,7 +243,7 @@ class ChatGPTScraper(BaseScraper):
             except Exception:
                 pass
 
-    def ask(self, prompt: str) -> str:
+    def _ask(self, prompt: str) -> str:
         self._close_stray_dialogs()
         box, _ = self.find_first(self.S["input"], visible=True)
         if box is None:
@@ -443,33 +444,123 @@ class ChatGPTScraper(BaseScraper):
         return el is not None and bool(el.find_elements(By.CSS_SELECTOR, f"{self.POPOVER_TRIGGER} [data-pill]"))
 
     def extract_sources(self) -> tuple[list, list]:
-        # Same card layout in guest and app mode (verified 2026-10-25).
+        """(citations, search_results). Citations come from the page (cards + popovers);
+        search results come from the conversation response the browser already received."""
         d = self._extract_guest()
-        citations, images = d["citations"], d["images"]
+        citations = d["citations"]
+        self._last_images = d["images"]
         seen = {normalize_url(c["url"]) for c in citations}
         for s in self._collect_popover_sources():
             key = normalize_url(s["url"]) if s["url"] else f"{s['domain']}|{s['headline'].lower()}"
             if key not in seen:
                 seen.add(key)
                 citations.append(s)
-        if self.mode == "guest":
-            return citations, images
+        return citations, self._stream_search_results()
 
-        # App mode: if a legacy sources panel exists, read "Citations" and "More" too.
-        more: list = []
-        control, _ = self.find_first(self.S["sources_control"], visible=True)
-        if control is not None:
+    def collect_extras(self, result):
+        result.images = getattr(self, "_last_images", [])
+        result.search_results_status = getattr(self, "_search_status", "capture_failed")
+        if not result.search_results and result.search_results_status == "n/a":
+            result.search_results = self._stream_search_results()
+            result.search_results_status = self._search_status
+
+    # -- search results from the conversation response ----------------------------
+    #
+    # The page receives the model's web-search results in its own conversation
+    # response and hides them after rendering. We wrap window.fetch in the page so a
+    # copy of those responses is kept, then parse them after the answer is complete.
+    # No extra request is made. Verified 2026-10-25:
+    #   guest  NDJSON  /unauth-mweb/conversation/updates
+    #          status.reasoning.items[].searchSources.groups[].entries[] {url,title,attribution}
+    #   app    SSE     /backend-api/f/conversation  and the full conversation JSON
+    #          /backend-api/conversations/<id>: messages[].metadata.search_result_groups[].entries[]
+    #          {url,title,snippet,pub_date,attribution}
+
+    _TAP_URL_RE = r"/conversation/updates|/backend-api/f/conversation|/backend-api/conversations/[0-9a-f-]{20,}"
+
+    _TAP_JS = r"""
+    (() => {
+      window.__tap = [];
+      if (window.__tapInstalled) return true;
+      window.__tapInstalled = true;
+      const re = new RegExp(arguments[0]);
+      const orig = window.fetch;
+      window.fetch = async function(...args) {
+        const resp = await orig.apply(this, args);
+        try {
+          const url = (args[0] && args[0].url) || String(args[0]);
+          if (re.test(url) && resp.body) {
+            const rec = {url: url.slice(0, 300), body: '', done: false};
+            window.__tap.push(rec);
+            const reader = resp.clone().body.getReader();
+            const dec = new TextDecoder();
+            (async () => {
+              try {
+                for (;;) {
+                  const {done, value} = await reader.read();
+                  if (done) break;
+                  if (rec.body.length < 8000000) rec.body += dec.decode(value, {stream: true});
+                }
+              } catch (e) { rec.err = String(e); }
+              rec.done = true;
+            })();
+          }
+        } catch (e) {}
+        return resp;
+      };
+      return true;
+    })();
+    """
+
+    def _install_tap(self):
+        try:
+            self.driver.execute_script(self._TAP_JS, self._TAP_URL_RE)
+            self._tap_ok = True
+        except Exception as e:
+            self._tap_ok = False
+            print(f"  [chatgpt] could not install response tap: {str(e)[:100]}")
+
+    def _stream_search_results(self, wait: float = 6) -> list:
+        """Parse search results out of the tapped responses for the current turn."""
+        if getattr(self, "_search_cache", None) is not None:
+            return self._search_cache
+        self._search_status = "capture_failed"
+        if not getattr(self, "_tap_ok", False):
+            self._search_cache = []
+            return []
+
+        def records():
             try:
-                control.click()
-                time.sleep(2)
-                for s in self._links_in_section("Citations"):
-                    if s["url"] not in seen:
-                        seen.add(s["url"])
-                        citations.append(s)
-                more = self._links_in_section("More")
-            except Exception as e:
-                print(f"  [chatgpt/app] sources panel failed: {e}")
-        return citations, (more or images)
+                return self.driver.execute_script("return window.__tap || [];") or []
+            except Exception:
+                return []
+
+        # Wait for the streams to finish; in app mode the full conversation JSON arrives
+        # shortly after the answer, so give it a moment.
+        end = time.time() + wait
+        recs = records()
+        while time.time() < end:
+            recs = records()
+            all_done = recs and all(r.get("done") for r in recs)
+            have_full = any(re.search(r"/backend-api/conversations/", r["url"]) for r in recs)
+            if all_done and (self.mode == "guest" or have_full):
+                break
+            time.sleep(0.5)
+
+        if not recs:
+            self._search_cache = []
+            return []
+        results = parse_search_results([r.get("body", "") for r in recs])
+        self._search_status = "ok" if results else "none"
+        self._search_cache = results
+        return results
+
+    def ask(self, prompt: str) -> str:
+        self._search_cache = None
+        self._search_status = "capture_failed"
+        self._last_images = []
+        self._install_tap()          # also clears records from earlier turns
+        return self._ask(prompt)
 
     def _links_in_section(self, header_text: str) -> list:
         headers = self._find_all(f"//li[normalize-space(text())='{header_text}']")
@@ -512,6 +603,79 @@ class ChatGPTScraper(BaseScraper):
         for frag in self.RETRY_TEXT:
             if frag in text:
                 raise RetryableError(f"page says: {frag!r}")
+
+
+# ----------------------------------------------------------------------------
+# Search-result parser for tapped conversation responses
+# ----------------------------------------------------------------------------
+
+def _json_docs(body: str):
+    """Yield JSON objects from a body that is plain JSON, NDJSON, or SSE."""
+    body = (body or "").strip()
+    if not body:
+        return
+    try:
+        yield json.loads(body)
+        return
+    except Exception:
+        pass
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("data:"):
+            line = line[5:].strip()
+        if not line or line == "[DONE]" or line[0] not in "{[":
+            continue
+        try:
+            yield json.loads(line)
+        except Exception:
+            continue
+
+
+def _walk_entries(o):
+    """Yield search-result entries from both known shapes, wherever they are nested."""
+    if isinstance(o, dict):
+        ss = o.get("searchSources")
+        if isinstance(ss, dict):
+            for g in ss.get("groups") or []:
+                for e in (g or {}).get("entries") or []:
+                    yield e, (g or {}).get("domain", "")
+        srg = o.get("search_result_groups")
+        if isinstance(srg, list):
+            for g in srg:
+                for e in (g or {}).get("entries") or []:
+                    yield e, (g or {}).get("domain", "")
+        for v in o.values():
+            if isinstance(v, (dict, list)):
+                yield from _walk_entries(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _walk_entries(v)
+
+
+def parse_search_results(bodies: list) -> list:
+    out, seen = [], set()
+    for body in bodies:
+        for doc in _json_docs(body):
+            for e, group_domain in _walk_entries(doc):
+                if not isinstance(e, dict):
+                    continue
+                url = (e.get("url") or "").replace("?utm_source=chatgpt.com", "").replace("&utm_source=chatgpt.com", "")
+                if not url.startswith("http"):
+                    continue
+                key = normalize_url(url)
+                if key in seen:
+                    continue
+                seen.add(key)
+                pub = e.get("pub_date")
+                out.append({
+                    "url": url,
+                    "headline": e.get("title") or "",
+                    "snippet": e.get("snippet") or "",
+                    "domain": group_domain or e.get("attribution") or "",
+                    "pub_date": datetime.fromtimestamp(pub).strftime("%Y-%m-%d") if isinstance(pub, (int, float)) else "",
+                    "kind": "search",
+                })
+    return out
 
 
 if __name__ == "__main__":
