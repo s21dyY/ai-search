@@ -76,8 +76,29 @@ class PerplexityScraper(BaseScraper):
                 raise RetryableError("blank_page")
             raise RetryableError("no input box on landing page")
         if self.profile and not self.is_logged_in():
-            raise BlockedError(f"profile '{self.profile}' is not logged in; "
-                               f"run: python perplexity_scraper.py --login --profile {self.profile}")
+            self.ensure_logged_in()                  # automatic login from accounts.toml
+            self.wait_until(lambda: self.exists(self.INPUT), timeout=20, poll=0.5)
+
+    def click_continue_with_google(self):
+        """Sign In -> 'Continue with Google' (verified 2026-10-25; same window, no popup)."""
+        self.driver.uc_open_with_reconnect(self.url, reconnect_time=4)
+        time.sleep(2)
+        sign_in, _ = self.find_first(["//button[normalize-space(.)='Sign In']",
+                                      "//button[contains(normalize-space(.), 'Sign in')]"], visible=True)
+        if sign_in is not None:
+            sign_in.click()
+            time.sleep(2)
+        btn, _ = self.find_first(["//button[contains(normalize-space(.), 'Continue with Google')]"], visible=True)
+        if btn is None:
+            self.check_blocked()
+            raise RetryableError("login dialog: 'Continue with Google' not found")
+        before = set(self.driver.window_handles)
+        btn.click()
+        time.sleep(3)
+        new = set(self.driver.window_handles) - before
+        if new:                                      # in case Perplexity switches to a popup
+            self.driver.switch_to.window(new.pop())
+        self.wait_until(lambda: "accounts.google.com" in self.driver.current_url, timeout=20, poll=0.5)
 
     def ask(self, prompt: str) -> str:
         box, _ = self.find_first(self.INPUT, visible=True)

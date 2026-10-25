@@ -1,0 +1,28 @@
+# Login accounts for the scrapers.
+#
+# Copy this file to accounts.toml (gitignored) and fill in real values.
+# One [[account]] block per account. Parallel runs use one account per worker.
+#
+#   name      folder for this account's browser session: profiles/<name>/
+#   email     login email
+#   password  login password
+#   login     "google"   -> "Continue with Google" on ChatGPT and Perplexity (recommended)
+#             "password" -> ChatGPT email + password; not supported by Perplexity
+#   services  which sites this account is used for
+#
+# Share accounts.toml with teammates through a password manager or an encrypted
+# archive, never through Slack or email.
+
+[[account]]
+name = "acct1"
+email = "first.account@gmail.com"
+password = "change-me"
+login = "google"
+services = ["chatgpt", "perplexity"]
+
+[[account]]
+name = "acct2"
+email = "second.account@gmail.com"
+password = "change-me"
+login = "google"
+services = ["chatgpt", "perplexity"]

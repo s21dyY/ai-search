@@ -5,3 +5,4 @@ local-docs/
 data/
 *.db
 profiles/
+accounts.toml

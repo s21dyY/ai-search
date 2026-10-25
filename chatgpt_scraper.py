@@ -55,7 +55,8 @@ from urllib.parse import unquote
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
-from scraper_base import BaseScraper, BlockedError, RetryableError, cli, normalize_url, remove_non_bmp
+from scraper_base import (BaseScraper, BlockedError, LoginChallenge, RetryableError, cli,
+                          normalize_url, remove_non_bmp)
 
 # Selector sets. Each value is an ordered candidate list; the first match wins.
 GUEST = dict(
@@ -177,9 +178,63 @@ class ChatGPTScraper(BaseScraper):
         self.mode = self._detect_mode()
         self.S = APP if self.mode == "app" else GUEST
         if self.profile and self.mode == "guest":
-            raise BlockedError(f"profile '{self.profile}' is not logged in (guest page loaded); "
-                               f"run: python chatgpt_scraper.py --login --profile {self.profile}")
+            self.ensure_logged_in()                  # automatic login from accounts.toml
+            self.wait_until(lambda: self._detect_mode() == "app", timeout=20, poll=0.5)
+            self.mode = self._detect_mode()
+            self.S = APP if self.mode == "app" else GUEST
+            if self.mode != "app":
+                raise BlockedError(f"profile '{self.profile}' still shows the guest page after login")
         self.enable_web_search()
+
+    # -- automatic login (accounts.toml) -------------------------------------------
+
+    def click_continue_with_google(self):
+        self.driver.uc_open_with_reconnect(self.login_url, reconnect_time=4)
+        time.sleep(2)
+        btn, _ = self.find_first(["//button[contains(normalize-space(.), 'Continue with Google')]",
+                                  "button[value='google']"], visible=True)
+        if btn is None:
+            login, _ = self.find_first(["//button[normalize-space(.)='Log in']"], visible=True)
+            if login is not None:
+                login.click(); time.sleep(3)
+                btn, _ = self.find_first(["//button[contains(normalize-space(.), 'Continue with Google')]"], visible=True)
+        if btn is None:
+            self.check_blocked()
+            raise RetryableError("login page: 'Continue with Google' not found")
+        btn.click()
+        self.wait_until(lambda: "accounts.google.com" in self.driver.current_url
+                        or self._detect_mode() == "app", timeout=20, poll=0.5)
+
+    def site_password_login(self, account, interactive: bool = False):
+        """ChatGPT email + password. Email step verified 2026-10-25; later steps best effort."""
+        self.driver.uc_open_with_reconnect(self.login_url, reconnect_time=4)
+        time.sleep(2)
+        email, _ = self.find_first(["input[type='email']", "input[name='email']", "#email"], visible=True)
+        if email is None:
+            raise RetryableError("login page: email field not found")
+        email.send_keys(account.email)
+        self._click_continue()
+        if not self.wait_until(lambda: self.exists(["input[type='password']"], visible=True), 20, 0.5):
+            self._human_step("OpenAI did not ask for a password (email code or verification instead)", interactive)
+            return
+        pw, _ = self.find_first(["input[type='password']"], visible=True)
+        pw.send_keys(account.password)
+        self._click_continue()
+        ok = self.wait_until(lambda: "chatgpt.com" in self.driver.current_url and self._detect_mode() == "app", 30, 1)
+        if not ok:
+            text = self.body_text()
+            if "code" in text or "verify" in text or "captcha" in text:
+                self._human_step("OpenAI asks for a verification step", interactive)
+            elif "wrong" in text or "incorrect" in text:
+                raise LoginChallenge("OpenAI rejected the email or password")
+
+    def _click_continue(self):
+        btn, _ = self.find_first(["//button[normalize-space(.)='Continue']", "button[type='submit']"], visible=True)
+        if btn is not None:
+            btn.click()
+        else:
+            self.driver.switch_to.active_element.send_keys(Keys.ENTER)
+        time.sleep(2)
 
     def enable_web_search(self, attempts: int = 3):
         """Turn on the Web search tool so the answer carries sources. Idempotent.

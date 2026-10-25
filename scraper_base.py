@@ -66,6 +66,11 @@ class BlockedError(ScraperError):
     kind = "blocked"
 
 
+class LoginChallenge(ScraperError):
+    """Automatic login needs a person (2FA, captcha, new-device check). Not retried."""
+    kind = "login_challenge"
+
+
 class BadInputError(ScraperError):
     """Empty headline or prompt. Not retried."""
     kind = "bad_input"
@@ -205,13 +210,22 @@ class BaseScraper:
 
     def __init__(self, headless: bool = True, profile: str | None = None,
                  profile_dir: str | None = None, window_size: tuple[int, int] = (1600, 2000),
-                 user_agent: str | None = None):
+                 user_agent: str | None = None, account=None):
         """
         profile:      name of a persistent, logged-in profile under profiles/ (account mode).
         profile_dir:  explicit Chrome user-data directory (overrides `profile`).
+        account:      accounts.Account with credentials for automatic login. If omitted
+                      and `profile` names an entry in accounts.toml, that entry is used.
         Neither:      fresh temporary profile in Chrome guest mode (logged-out mode).
         """
         self.profile = profile
+        if account is None and profile:
+            try:
+                from accounts import get_account
+                account = get_account(profile, self.name)
+            except Exception as e:
+                print(f"  [{self.name}] accounts file not usable: {e}")
+        self.account = account
         if profile_dir:
             self.profile_dir = str(profile_dir)
         elif profile:
@@ -364,6 +378,119 @@ class BaseScraper:
         """Best-effort check of the current page. Subclasses override."""
         return False
 
+    def ensure_logged_in(self, interactive: bool = False):
+        """
+        Account mode only. Called after the chat page has loaded. If the profile has
+        no session, log in automatically with self.account, then reload the chat page.
+        Raises LoginChallenge when a human step is needed and interactive is False.
+        """
+        if not self.profile or self.is_logged_in():
+            return
+        if self.account is None:
+            raise BlockedError(
+                f"profile '{self.profile}' is not logged in and has no entry in accounts.toml; "
+                f"add one, or run: python {self.name}_scraper.py --login --profile {self.profile}")
+        print(f"  [{self.name}] profile '{self.profile}' has no session; logging in as {self.account.email}")
+        self.auto_login(self.account, interactive=interactive)
+        self.driver.uc_open_with_reconnect(self.url, reconnect_time=4)
+        self.wait_until(self.is_logged_in, timeout=20, poll=1)
+        if not self.is_logged_in():
+            raise BlockedError(f"automatic login for '{self.profile}' did not produce a session")
+        print(f"  [{self.name}] logged in as {self.account.email}")
+
+    def auto_login(self, account, interactive: bool = False):
+        if account.login == "google":
+            self.click_continue_with_google()
+            self.complete_google_signin(account, interactive=interactive)
+        elif account.login == "password":
+            self.site_password_login(account, interactive=interactive)
+        else:
+            raise BlockedError(f"unknown login method {account.login!r}")
+
+    def click_continue_with_google(self):
+        """Subclasses: open the site's login UI and click 'Continue with Google'."""
+        raise NotImplementedError
+
+    def site_password_login(self, account, interactive: bool = False):
+        raise BlockedError(f"{self.name} does not support password login; use login = \"google\"")
+
+    # Google sign-in, shared by both sites. Handles the identifier page, the password
+    # page, the account chooser (when the profile already has a Google session) and
+    # the consent page. Anything else (2FA, captcha, "browser not secure", new-device
+    # verification) is a challenge that needs a person.
+    GOOGLE_CHALLENGE_TEXT = (
+        "this browser or app may not be secure", "couldn't sign you in", "verify it's you",
+        "2-step verification", "confirm you're not a robot", "check your phone",
+        "get a verification code", "too many failed attempts", "unusual activity",
+    )
+
+    def _google_challenge(self) -> str:
+        url = self.driver.current_url
+        if re.search(r"/challenge/|/signin/rejected|deniedsigninrejected|/speedbump/", url):
+            return url.split("?")[0]
+        # Google uses curly apostrophes ("couldn’t find this account").
+        text = self.body_text().replace("’", "'").replace("‘", "'")
+        if ("wrong password" in text or "couldn't find this account" in text
+                or "couldn't find your google account" in text or "enter a valid email" in text):
+            return "wrong email or password"
+        for frag in self.GOOGLE_CHALLENGE_TEXT:
+            if frag in text:
+                return frag
+        if self.exists(["#captchaimg", "iframe[src*='recaptcha']"], visible=True):
+            return "captcha"
+        return ""
+
+    def complete_google_signin(self, account, interactive: bool = False, timeout: float = 90):
+        end = time.time() + timeout
+        typed_email = typed_pw = False
+        while time.time() < end:
+            url = self.driver.current_url
+            if "accounts.google.com" not in url:
+                return                                        # back on the site
+            challenge = self._google_challenge()
+            if challenge == "wrong email or password":
+                raise LoginChallenge(f"Google rejected the email or password for {account.email}; check accounts.toml")
+            if challenge:
+                self._human_step(f"Google needs a manual step ({challenge})", interactive)
+                typed_email = typed_pw = True                 # the person handles the rest
+                continue
+            chooser, _ = self.find_first([f"[data-identifier='{account.email}']",
+                                          f"[data-email='{account.email}']"], visible=True)
+            if chooser is not None:
+                chooser.click(); time.sleep(2); continue
+            email, _ = self.find_first(["#identifierId", "input[type='email']"], visible=True)
+            if email is not None and not typed_email:
+                email.clear(); email.send_keys(account.email)
+                self._click_google_next(["#identifierNext button", "#identifierNext"])
+                typed_email = True; time.sleep(3); continue
+            pw, _ = self.find_first(["input[name='Passwd']", "input[type='password']"], visible=True)
+            if pw is not None and not typed_pw:
+                pw.send_keys(account.password)
+                self._click_google_next(["#passwordNext button", "#passwordNext"])
+                typed_pw = True; time.sleep(4); continue
+            consent, _ = self.find_first(["//button[normalize-space(.)='Continue']",
+                                          "//button[normalize-space(.)='Allow']",
+                                          "//span[normalize-space(.)='Continue']/ancestor::button"], visible=True)
+            if consent is not None:
+                consent.click(); time.sleep(3); continue
+            time.sleep(1)
+        challenge = self._google_challenge()
+        raise LoginChallenge(f"Google sign-in did not finish within {timeout:.0f} s"
+                             + (f" ({challenge})" if challenge else ""))
+
+    def _click_google_next(self, candidates):
+        btn, _ = self.find_first(candidates, visible=True)
+        if btn is not None:
+            btn.click()
+        else:
+            self.driver.switch_to.active_element.send_keys(Keys.ENTER)
+
+    def _human_step(self, what: str, interactive: bool):
+        if not interactive or self.headless:
+            raise LoginChallenge(f"{what}. Run: python {self.name}_scraper.py --login --profile {self.profile}")
+        print(f"\n{what}.")
+        input("Finish it in the browser window, then press Enter here... ")
+
     # -- step API, implemented by subclasses --------------------------------
 
     def open_new_chat(self):
@@ -473,13 +600,22 @@ OUTPUT_COLUMNS = [
 
 def login_session(scraper_cls: type[BaseScraper], profile: str):
     """
-    Open a visible browser on the site's login page using profiles/<profile>/ and
-    wait while the person logs in by hand (Google, email code, whatever the site
-    wants). Nothing is typed by the script and no password is stored anywhere.
-    After this, any run with --profile <profile> starts logged in.
+    Log profiles/<profile>/ in, in a visible browser.
+    If accounts.toml has credentials for <profile>, log in automatically and only
+    stop for steps that need a person (2FA, captcha). Otherwise wait while the
+    person logs in by hand.
     """
     s = scraper_cls(headless=False, profile=profile)
     try:
+        if s.account is not None:
+            s.driver.uc_open_with_reconnect(s.url, reconnect_time=4)
+            time.sleep(3)
+            try:
+                s.ensure_logged_in(interactive=True)
+                print(f"Login confirmed for '{profile}'. Profile saved at {s.profile_dir}")
+                return
+            except ScraperError as e:
+                print(f"Automatic login failed: {e}\nFalling back to a manual login.")
         s.driver.uc_open_with_reconnect(s.login_url or s.url, reconnect_time=4)
         print(f"\nA Chrome window is open using profile '{profile}' ({s.profile_dir}).")
         print(f"Log in to {s.name} in that window. Finish any code or 2FA step.")
@@ -581,12 +717,22 @@ def cli(scraper_cls: type[BaseScraper]):
     import argparse
     p = argparse.ArgumentParser(prog=f"{scraper_cls.name}_scraper.py")
     p.add_argument("dates", nargs="?", help="YYYY-MM-DD or YYYY-MM-DD_DD")
-    p.add_argument("--profile", help="name of a saved login profile under profiles/")
-    p.add_argument("--login", action="store_true", help="open a browser to log in by hand, then exit")
+    p.add_argument("--profile", help="account name from accounts.toml, or a profile under profiles/")
+    p.add_argument("--login", action="store_true", help="log the profile in (automatic if in accounts.toml), then exit")
+    p.add_argument("--login-all", action="store_true", help="log in every account in accounts.toml for this site")
     p.add_argument("--headful", action="store_true", help="show the browser window")
     p.add_argument("--limit", type=int, help="only the first N articles")
     a = p.parse_args()
 
+    if a.login_all:
+        from accounts import load_accounts
+        accts = load_accounts(service=scraper_cls.name)
+        if not accts:
+            p.error(f"no accounts for {scraper_cls.name} in accounts.toml")
+        for acct in accts:
+            print(f"\n=== {acct.name} ({acct.email}) ===")
+            login_session(scraper_cls, acct.name)
+        return
     if a.login:
         if not a.profile:
             p.error("--login needs --profile NAME")
