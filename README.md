@@ -9,7 +9,7 @@ Measures whether ChatGPT and Perplexity cite Gannett articles when asked about t
 | `scraper/` | Browser scrapers for ChatGPT and Perplexity, account logins, and the parallel queue runner |
 | `ingest/` | Inputs: Gannett Content API export (`Gannett_API.py`), prompt generation (`Prompt_Generator.py`), sample API queries and a sample dataset |
 | `analysis/` | `Analysis_Metrics.py` and the baseline-graphs notebook |
-| `tools/` | `capture_page_samples.py`, saves page snapshots for debugging selectors |
+| `tools/` | `make_test_input.py` builds a small test input; `capture_page_samples.py` saves page snapshots for debugging selectors |
 | `history/` | Deprecated scrapers, kept for reference (see `history/README.md`) |
 
 Not in git: `accounts.toml` (credentials), `profiles/` (browser sessions), `data/` (inputs, results, logs, screenshots).
@@ -56,6 +56,98 @@ Outputs in `data/`:
 - `gannett_<model>_<dates>_raw.csv`: one row per attempt
 - `logs_<model>_<dates>/`: one log per worker
 - `screenshots_<model>_<dates>/`: pages where the original or a republisher was found, and error pages
+
+## Testing the parallel run
+
+A walkthrough to check the whole pipeline on a handful of articles: logins, parallel workers, retries, crash recovery and resume. It needs no Gannett API key. Plan on about 15 minutes.
+
+### 1. Prepare accounts
+
+Add at least two accounts to `accounts.toml`. Each needs to be a Google account; both sites log in with "Continue with Google". Accounts without two-step verification work best. Passkeys are handled automatically.
+
+```
+python -m scraper.chatgpt_scraper --login-all
+python -m scraper.perplexity_scraper --login-all
+```
+
+Each account logs in once per site and the session is saved under `profiles/<account>/<site>/`. Expect about 40 to 60 seconds per login. If Google asks for a phone confirmation or a code, a browser window opens; finish the step there and press Enter in the terminal.
+
+### 2. Build a small test input
+
+```
+python tools/make_test_input.py --name partest --n 6
+```
+
+This writes `data/gannett_API_data_partest.csv` with 6 articles from `ingest/dataset.csv`. Use `--seed` to get different articles.
+
+### 3. Run in parallel
+
+```
+python -m scraper.run_queue --model chatgpt --dates partest
+```
+
+One worker starts per account, 15 seconds apart. Progress prints every 20 seconds:
+
+```
+started w1-acct1 (pid 19840) -> data/logs_chatgpt_partest/w1-acct1.log
+started w2-acct2 (pid 19902) -> data/logs_chatgpt_partest/w2-acct2.log
+18:01:42 {'pending': 4, 'running': 2, 'done': 0, 'failed': 0} | 20s
+...
+Done in 160s | {'pending': 0, 'running': 0, 'done': 6, 'failed': 0} | attempts=6
+```
+
+Expected: every task ends as `done`, about 20 to 30 seconds per article plus a 20 to 30 second pause between articles per worker. Each worker's log in `data/logs_chatgpt_partest/` shows which articles it took and how many citations and search results it found.
+
+Without `OPENAI_API_KEY` the run prints "PromptGenerator unavailable" and uses the template "What can you tell me about: <headline>". That is fine for testing.
+
+Both sites can run at the same time in two terminals; each account uses a separate browser profile per site.
+
+```
+python -m scraper.run_queue --model perplexity --dates partest
+```
+
+### 4. Test crash recovery
+
+Start a new run under a different name, and while a worker is busy, kill it from a second terminal:
+
+```
+python tools/make_test_input.py --name killtest --n 4
+python -m scraper.run_queue --model chatgpt --dates killtest
+# second terminal, once the log shows w2 working on a task:
+pkill -9 -f "worker-id w2-acct2"
+```
+
+Expected within about 20 seconds: `w2-acct2 exited with -9; released 1 task(s); restart 1`. The restarted worker re-runs the interrupted article and the run still ends with every task `done`.
+
+### 5. Test resume and retry
+
+Run the same command again:
+
+```
+python -m scraper.run_queue --model chatgpt --dates killtest
+```
+
+Expected: `Nothing to do.` Finished articles are never re-run. If a run ends with failed tasks, `--retry-failed` puts them back in the queue.
+
+Failed attempts retry automatically: up to 3 tries per article, 2 minutes apart, possibly on another worker. Every attempt, failed or not, is a row in `data/gannett_chatgpt_<dates>_raw.csv`; error screenshots go to `data/screenshots_chatgpt_<dates>/Errors/`.
+
+### 6. Start a test over
+
+```
+rm -rf data/queue_chatgpt_partest.db data/queue_chatgpt_partest.db-wal data/queue_chatgpt_partest.db-shm \
+       data/logs_chatgpt_partest data/screenshots_chatgpt_partest \
+       data/gannett_chatgpt_partest.csv data/gannett_chatgpt_partest_raw.csv
+```
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `cannot connect to chrome` or a profile seems locked | A browser from an earlier login or run is still open on that profile. Close it, or stop the earlier command with Ctrl+C. |
+| `login_challenge` in a worker log, worker stops | Google wants a manual step. Run `python -m scraper.<site>_scraper --login --profile <account>`, finish it in the browser, then re-run the queue command. |
+| `Google rejected the email or password` | Check that account in `accounts.toml`. |
+| `web search item disabled; reloading` in a ChatGPT log | Normal; ChatGPT sometimes loads the menu late. The worker reloads and continues. |
+| Tasks keep failing with the same error | Look at the screenshots in `data/screenshots_<site>_<dates>/Errors/`; the site layout may have changed. `python tools/capture_page_samples.py <site> --profile <account>` saves the current page for debugging. |
 
 ## Output columns
 
