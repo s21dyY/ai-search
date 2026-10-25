@@ -509,20 +509,24 @@ class BaseScraper:
                 self._human_step("Google offers no password option for this account", interactive)
                 typed_email = typed_pw = True
                 continue
-            chooser, _ = self.find_first([f"[data-identifier='{account.email}']",
-                                          f"[data-email='{account.email}']"], visible=True)
-            if chooser is not None:
-                chooser.click(); time.sleep(2); continue
-            email, _ = self.find_first(["#identifierId", "input[type='email']"], visible=True)
-            if email is not None and not typed_email:
-                email.clear(); email.send_keys(account.email)
-                self._click_google_next(["#identifierNext button", "#identifierNext"])
-                typed_email = True; time.sleep(3); continue
+            # Password and email fields first: the password page also shows the account
+            # as an element with data-email, which is not the account chooser.
             pw, _ = self.find_first(["input[name='Passwd']", "input[type='password']"], visible=True)
             if pw is not None and not typed_pw:
                 pw.send_keys(account.password)
                 self._click_google_next(["#passwordNext button", "#passwordNext"])
                 typed_pw = True; time.sleep(4); continue
+            email, _ = self.find_first(["#identifierId", "input[type='email']"], visible=True)
+            if email is not None and not typed_email:
+                email.clear(); email.send_keys(account.email)
+                self._click_google_next(["#identifierNext button", "#identifierNext"])
+                typed_email = True; time.sleep(3); continue
+            if "/challenge/" not in url and pw is None and email is None:
+                chooser, _ = self.find_first([f"[data-identifier='{account.email}']",
+                                              f"[role='link'][data-email='{account.email}']",
+                                              f"li [data-email='{account.email}']"], visible=True)
+                if chooser is not None:
+                    chooser.click(); time.sleep(2); continue
             consent, _ = self.find_first(["//button[normalize-space(.)='Continue']",
                                           "//button[normalize-space(.)='Allow']",
                                           "//span[normalize-space(.)='Continue']/ancestor::button"], visible=True)
