@@ -424,15 +424,24 @@ class BaseScraper:
         "get a verification code", "too many failed attempts", "unusual activity",
     )
 
+    # Google sign-in steps the script handles itself. Any other /challenge/ page needs a person.
+    _GOOGLE_HANDLED = re.compile(r"/challenge/(pwd|pk|pk/presend|selection)(\?|/|$)")
+
     def _google_challenge(self) -> str:
         url = self.driver.current_url
-        if re.search(r"/challenge/|/signin/rejected|deniedsigninrejected|/speedbump/", url):
-            return url.split("?")[0]
+        if self._GOOGLE_HANDLED.search(url):
+            handled = True
+        else:
+            handled = False
+            if re.search(r"/challenge/|/signin/rejected|deniedsigninrejected|/speedbump/", url):
+                return url.split("?")[0]
         # Google uses curly apostrophes ("couldn’t find this account").
-        text = self.body_text().replace("’", "'").replace("‘", "'")
+        text = self.body_text().replace("\u2019", "'").replace("\u2018", "'")
         if ("wrong password" in text or "couldn't find this account" in text
                 or "couldn't find your google account" in text or "enter a valid email" in text):
             return "wrong email or password"
+        if handled:
+            return ""
         for frag in self.GOOGLE_CHALLENGE_TEXT:
             if frag in text:
                 return frag
@@ -440,7 +449,39 @@ class BaseScraper:
             return "captcha"
         return ""
 
+    def _block_passkey_prompt(self):
+        """
+        Accounts with a passkey make Google ask for it instead of the password, and
+        Chrome then shows the OS fingerprint dialog, which a script cannot answer.
+        A virtual security key with no credentials makes that request fail at once,
+        so Google offers 'Try another way' -> 'Enter your password'.
+        """
+        if getattr(self, "_virtual_authenticator", None):
+            return
+        try:
+            self.driver.execute_cdp_cmd("WebAuthn.enable", {"enableUI": False})
+            r = self.driver.execute_cdp_cmd("WebAuthn.addVirtualAuthenticator", {"options": {
+                "protocol": "ctap2", "transport": "internal", "hasResidentKey": True,
+                "hasUserVerification": True, "isUserVerified": False,
+                "automaticPresenceSimulation": True}})
+            self._virtual_authenticator = r.get("authenticatorId", True)
+        except Exception as e:
+            print(f"  [{self.name}] could not block the passkey prompt: {str(e)[:80]}")
+
+    def _click_text(self, texts, roles=("button", "link")) -> bool:
+        cands = []
+        for t in texts:
+            cands += [f"//button[contains(normalize-space(.), '{t}')]",
+                      f"//*[@role='{roles[-1]}'][contains(normalize-space(.), '{t}')]",
+                      f"//li[contains(normalize-space(.), '{t}')]"]
+        el, _ = self.find_first(cands, visible=True)
+        if el is None:
+            return False
+        self.driver.execute_script("arguments[0].click()", el)
+        return True
+
     def complete_google_signin(self, account, interactive: bool = False, timeout: float = 90):
+        self._block_passkey_prompt()
         end = time.time() + timeout
         typed_email = typed_pw = False
         while time.time() < end:
@@ -453,6 +494,20 @@ class BaseScraper:
             if challenge:
                 self._human_step(f"Google needs a manual step ({challenge})", interactive)
                 typed_email = typed_pw = True                 # the person handles the rest
+                continue
+            # Passkey requested: switch to password (verified 2026-10-25).
+            if re.search(r"/challenge/pk", url):
+                if self._click_text(["Try another way"]):
+                    time.sleep(3)
+                else:
+                    time.sleep(1)
+                continue
+            if "/challenge/selection" in url:
+                if self._click_text(["Enter your password"]):
+                    time.sleep(3)
+                    continue
+                self._human_step("Google offers no password option for this account", interactive)
+                typed_email = typed_pw = True
                 continue
             chooser, _ = self.find_first([f"[data-identifier='{account.email}']",
                                           f"[data-email='{account.email}']"], visible=True)
