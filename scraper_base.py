@@ -229,7 +229,10 @@ class BaseScraper:
         if profile_dir:
             self.profile_dir = str(profile_dir)
         elif profile:
-            self.profile_dir = str((PROFILES_DIR / profile).resolve())
+            # One Chrome profile per account per site, so a ChatGPT run and a Perplexity
+            # run can use the same account at the same time (Chrome locks a profile to
+            # one process).
+            self.profile_dir = str((PROFILES_DIR / profile / self.name).resolve())
             Path(self.profile_dir).mkdir(parents=True, exist_ok=True)
         else:
             self.profile_dir = tempfile.mkdtemp(prefix=f"{self.name}_profile_")
@@ -254,10 +257,30 @@ class BaseScraper:
                 "--disable-infobars",
                 "--disable-extensions",
                 "--disable-sync",
+                # After a Google login Chrome offers "Make Chrome Your Own" (browser sign-in)
+                # in its own window, which covers the page. Turn that prompt off.
+                "--disable-features=SigninInterception,DiceWebSigninInterception,"
+                "ExplicitBrowserSigninUIOnDesktop,ChromeSigninIntercept",
             ],
         )
         self.driver.set_window_size(*window_size)
         self.driver.set_page_load_timeout(45)
+        self._main_window = self.driver.current_window_handle
+
+    def focus_main_window(self):
+        """Close any extra window Chrome or a site opened and return to the main one."""
+        try:
+            for h in list(self.driver.window_handles):
+                if h != self._main_window:
+                    self.driver.switch_to.window(h)
+                    self.driver.close()
+            self.driver.switch_to.window(self._main_window)
+        except Exception:
+            try:
+                self.driver.switch_to.window(self.driver.window_handles[0])
+                self._main_window = self.driver.current_window_handle
+            except Exception:
+                pass
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -392,6 +415,7 @@ class BaseScraper:
                 f"add one, or run: python {self.name}_scraper.py --login --profile {self.profile}")
         print(f"  [{self.name}] profile '{self.profile}' has no session; logging in as {self.account.email}")
         self.auto_login(self.account, interactive=interactive)
+        self.focus_main_window()
         self.driver.uc_open_with_reconnect(self.url, reconnect_time=4)
         self.wait_until(self.is_logged_in, timeout=20, poll=1)
         if not self.is_logged_in():
