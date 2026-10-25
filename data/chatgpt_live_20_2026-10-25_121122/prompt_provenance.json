@@ -1,0 +1,122 @@
+[
+  {
+    "headline": "Why widow of Michael Crichton chose James Patterson to finish his 'Eruption' book",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Why did Michael Crichton's widow choose James Patterson to finish his unfinished novel Eruption instead of someone else?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Huge Roxbury warehouse proposal in jeopardy as planning board pushes back. What happened",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Why is the major TNT warehouse redevelopment project near Interstate 80 in Roxbury currently facing delays and pushback from the planning board?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Delbarton alum Jack Alexy of Mendham qualifies for U.S. swim team at Paris Olympics",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "How did Jack Alexy from Mendham and a Delbarton alumnus secure his spot on the U.S. swim team for the Paris Olympics?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Omarosa slams Donald Trump's 'Black jobs' debate comments, compares remarks to 'slavery'",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Why did Omarosa Manigault Newman heavily criticize Donald Trump's controversial Black jobs debate remarks and compare them to slavery?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Four Tops singer sues hospital for discrimination, claims staff ordered psych eval",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Why is a member of The Four Tops suing a hospital for discrimination and claiming he was forced to undergo a psychiatric evaluation?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Justin Timberlake arrested on DWI charges in the Hamptons, reports say",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "What are the details surrounding Justin Timberlake getting arrested for driving while intoxicated in the Hamptons?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "This summer's most anticipated movie releases | The Excerpt",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Can you break down the biggest movie releases and most anticipated films coming out this summer based on recent podcast discussions?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Taylor Swift breaks attendance record for female artist in Lyon, France",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "How many people attended Taylor Swift's record-breaking concert in Lyon, France, and what is the new stadium record?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Oprah says book club pick 'Familiaris' by David Wroblewski 'brilliantly' explores life's purpose",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "What can you tell me about David Wroblewsks's novel Familiaris, which was recently chosen as Oprah Winfrey's latest book club pick?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Naomi Watts and Billy Crudup get married \u2013 again! See the gorgeous ceremony",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Can you show me pictures and details from Naomi Watts and Billy Crudup's second wedding ceremony in Mexico City?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "'Rust' armorer Hannah Gutierrez-Reed denied immunity to testify at Alec Baldwin's trial",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Why was Rust armorer Hannah Gutierrez-Reed denied immunity regarding her upcoming testimony at Alec Baldwin's criminal trial?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Kevin Costner's new 'Horizon' movie: Why he needs 'Yellowstone' fans and John Dutton",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Why does Kevin Costner's new Horizon movie heavily rely on Yellowstone fans and the John Dutton character for its success?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Dover will open new Morris Canal trail on Saturday. Take a hike into history",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Can you tell me details about the new Morris Canal hiking trail opening in Dover, New Jersey, this Saturday?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "These are the fireworks shows in your North Jersey towns for July 4th. See when and where",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Can you give me a schedule of the July 4th fireworks shows happening around North Jersey towns like Hopatcong and Mountain Lakes?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Who says you can't go 'Home'? Revival on Broadway packed with melody, rhythm",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "What is the Broadway revival of Home about, and how are critics reacting to Kenny Leon's new production?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Ramapo, Indian Hills enrollment disparity study completed. Here's what was found",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "What did the recent enrollment disparity study for the Ramapo Indian Hills Regional School District reveal about student numbers?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Montclair University sergeant charged in PBA card fraud enrolls in PTI, loses job",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "What happened to the Montclair State University police sergeant who was charged with PBA card fraud and lost his job?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Softball: Morris Knolls holds off rival Morris Hills to claim second straight sectional title",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "How did Morris Knolls defeat rival Morris Hills to win their second straight high school softball sectional title?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "Think building on empty land will solve your homebuying woes? Consider these factors first",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "What important factors should I consider before buying and building a new home on vacant land in North Jersey?",
+    "fresh_api_call": true
+  },
+  {
+    "headline": "This skyscraper expert says high-rises are the future. Why we might see more in NJ",
+    "model": "gemini-3.5-flash-lite",
+    "prompt": "Why do skyscraper experts believe that New Jersey will see an increase in high-rises driven by development trends near Manhattan?",
+    "fresh_api_call": true
+  }
+]

@@ -1,0 +1,21 @@
+article,id,headline,prompt_generated,submitted_prompt_matches,answer_words,citations,search_results,results_not_in_citations,citation_error,search_error,screenshot_path
+1,73687067007,Why widow of Michael Crichton chose James Patterson to finish his 'Eruption' book,True,True,430,6,17,11,,,
+2,73972472007,Huge Roxbury warehouse proposal in jeopardy as planning board pushes back. What happened,True,True,509,11,15,6,,,screenshots_gpt_2026-10-25/Article_2_SourceUsed.png
+3,74123362007,Delbarton alum Jack Alexy of Mendham qualifies for U.S. swim team at Paris Olympics,True,True,421,6,10,4,,,screenshots_gpt_2026-10-25/Article_3_SourceUsed.png
+4,74255489007,"Omarosa slams Donald Trump's 'Black jobs' debate comments, compares remarks to 'slavery'",True,True,588,5,12,8,,,screenshots_gpt_2026-10-25/Article_4_SourceUsed.png
+5,74054650007,"Four Tops singer sues hospital for discrimination, claims staff ordered psych eval",True,True,488,5,9,4,,,screenshots_gpt_2026-10-25/Article_5_SourceUsed.png
+6,74134649007,"Justin Timberlake arrested on DWI charges in the Hamptons, reports say",True,True,686,9,14,8,,,
+7,74020025007,This summer's most anticipated movie releases | The Excerpt,True,True,1313,8,10,3,,,
+8,73948990007,"Taylor Swift breaks attendance record for female artist in Lyon, France",True,True,105,6,9,3,,,screenshots_gpt_2026-10-25/Article_8_SourceUsed.png
+9,74056991007,Oprah says book club pick 'Familiaris' by David Wroblewski 'brilliantly' explores life's purpose,True,True,1094,9,16,8,,,screenshots_gpt_2026-10-25/Article_9_SourceUsed.png
+10,74041930007,Naomi Watts and Billy Crudup get married – again! See the gorgeous ceremony,True,True,419,7,13,6,,,screenshots_gpt_2026-10-25/Article_10_SourceUsed.png
+11,74171457007,'Rust' armorer Hannah Gutierrez-Reed denied immunity to testify at Alec Baldwin's trial,True,True,366,3,16,13,,,screenshots_gpt_2026-10-25/Article_11_SourceUsed.png
+12,74199487007,Kevin Costner's new 'Horizon' movie: Why he needs 'Yellowstone' fans and John Dutton,True,True,664,5,8,3,,,
+13,74083795007,Dover will open new Morris Canal trail on Saturday. Take a hike into history,True,True,309,7,12,8,,,
+14,72841106007,These are the fireworks shows in your North Jersey towns for July 4th. See when and where,True,True,544,3,9,6,,,
+15,74047850007,"Who says you can't go 'Home'? Revival on Broadway packed with melody, rhythm",True,True,616,8,7,2,,,screenshots_gpt_2026-10-25/Article_15_SourceUsed.png
+16,73948657007,"Ramapo, Indian Hills enrollment disparity study completed. Here's what was found",True,True,210,3,10,7,,,
+17,74196211007,"Montclair University sergeant charged in PBA card fraud enrolls in PTI, loses job",True,True,293,4,14,10,,,
+18,73919427007,Softball: Morris Knolls holds off rival Morris Hills to claim second straight sectional title,True,True,127,2,17,15,,,
+19,73768549007,Think building on empty land will solve your homebuying woes? Consider these factors first,True,True,2170,4,12,8,,,
+20,74155335007,This skyscraper expert says high-rises are the future. Why we might see more in NJ,True,True,507,8,19,12,,,

@@ -1,0 +1,122 @@
+[
+  {
+    "article": 1,
+    "expected": "Why did Michael Crichton's widow choose James Patterson to finish his unfinished novel Eruption instead of someone else?",
+    "submitted": "Why did Michael Crichton's widow choose James Patterson to finish his unfinished novel Eruption instead of someone else?",
+    "matches": true
+  },
+  {
+    "article": 2,
+    "expected": "Why is the major TNT warehouse redevelopment project near Interstate 80 in Roxbury currently facing delays and pushback from the planning board?",
+    "submitted": "Why is the major TNT warehouse redevelopment project near Interstate 80 in Roxbury currently facing delays and pushback from the planning board?",
+    "matches": true
+  },
+  {
+    "article": 3,
+    "expected": "How did Jack Alexy from Mendham and a Delbarton alumnus secure his spot on the U.S. swim team for the Paris Olympics?",
+    "submitted": "How did Jack Alexy from Mendham and a Delbarton alumnus secure his spot on the U.S. swim team for the Paris Olympics?",
+    "matches": true
+  },
+  {
+    "article": 4,
+    "expected": "Why did Omarosa Manigault Newman heavily criticize Donald Trump's controversial Black jobs debate remarks and compare them to slavery?",
+    "submitted": "Why did Omarosa Manigault Newman heavily criticize Donald Trump's controversial Black jobs debate remarks and compare them to slavery?",
+    "matches": true
+  },
+  {
+    "article": 5,
+    "expected": "Why is a member of The Four Tops suing a hospital for discrimination and claiming he was forced to undergo a psychiatric evaluation?",
+    "submitted": "Why is a member of The Four Tops suing a hospital for discrimination and claiming he was forced to undergo a psychiatric evaluation?",
+    "matches": true
+  },
+  {
+    "article": 6,
+    "expected": "What are the details surrounding Justin Timberlake getting arrested for driving while intoxicated in the Hamptons?",
+    "submitted": "What are the details surrounding Justin Timberlake getting arrested for driving while intoxicated in the Hamptons?",
+    "matches": true
+  },
+  {
+    "article": 7,
+    "expected": "Can you break down the biggest movie releases and most anticipated films coming out this summer based on recent podcast discussions?",
+    "submitted": "Can you break down the biggest movie releases and most anticipated films coming out this summer based on recent podcast discussions?",
+    "matches": true
+  },
+  {
+    "article": 8,
+    "expected": "How many people attended Taylor Swift's record-breaking concert in Lyon, France, and what is the new stadium record?",
+    "submitted": "How many people attended Taylor Swift's record-breaking concert in Lyon, France, and what is the new stadium record?",
+    "matches": true
+  },
+  {
+    "article": 9,
+    "expected": "What can you tell me about David Wroblewsks's novel Familiaris, which was recently chosen as Oprah Winfrey's latest book club pick?",
+    "submitted": "What can you tell me about David Wroblewsks's novel Familiaris, which was recently chosen as Oprah Winfrey's latest book club pick?",
+    "matches": true
+  },
+  {
+    "article": 10,
+    "expected": "Can you show me pictures and details from Naomi Watts and Billy Crudup's second wedding ceremony in Mexico City?",
+    "submitted": "Can you show me pictures and details from Naomi Watts and Billy Crudup's second wedding ceremony in Mexico City?",
+    "matches": true
+  },
+  {
+    "article": 11,
+    "expected": "Why was Rust armorer Hannah Gutierrez-Reed denied immunity regarding her upcoming testimony at Alec Baldwin's criminal trial?",
+    "submitted": "Why was Rust armorer Hannah Gutierrez-Reed denied immunity regarding her upcoming testimony at Alec Baldwin's criminal trial?",
+    "matches": true
+  },
+  {
+    "article": 12,
+    "expected": "Why does Kevin Costner's new Horizon movie heavily rely on Yellowstone fans and the John Dutton character for its success?",
+    "submitted": "Why does Kevin Costner's new Horizon movie heavily rely on Yellowstone fans and the John Dutton character for its success?",
+    "matches": true
+  },
+  {
+    "article": 13,
+    "expected": "Can you tell me details about the new Morris Canal hiking trail opening in Dover, New Jersey, this Saturday?",
+    "submitted": "Can you tell me details about the new Morris Canal hiking trail opening in Dover, New Jersey, this Saturday?",
+    "matches": true
+  },
+  {
+    "article": 14,
+    "expected": "Can you give me a schedule of the July 4th fireworks shows happening around North Jersey towns like Hopatcong and Mountain Lakes?",
+    "submitted": "Can you give me a schedule of the July 4th fireworks shows happening around North Jersey towns like Hopatcong and Mountain Lakes?",
+    "matches": true
+  },
+  {
+    "article": 15,
+    "expected": "What is the Broadway revival of Home about, and how are critics reacting to Kenny Leon's new production?",
+    "submitted": "What is the Broadway revival of Home about, and how are critics reacting to Kenny Leon's new production?",
+    "matches": true
+  },
+  {
+    "article": 16,
+    "expected": "What did the recent enrollment disparity study for the Ramapo Indian Hills Regional School District reveal about student numbers?",
+    "submitted": "What did the recent enrollment disparity study for the Ramapo Indian Hills Regional School District reveal about student numbers?",
+    "matches": true
+  },
+  {
+    "article": 17,
+    "expected": "What happened to the Montclair State University police sergeant who was charged with PBA card fraud and lost his job?",
+    "submitted": "What happened to the Montclair State University police sergeant who was charged with PBA card fraud and lost his job?",
+    "matches": true
+  },
+  {
+    "article": 18,
+    "expected": "How did Morris Knolls defeat rival Morris Hills to win their second straight high school softball sectional title?",
+    "submitted": "How did Morris Knolls defeat rival Morris Hills to win their second straight high school softball sectional title?",
+    "matches": true
+  },
+  {
+    "article": 19,
+    "expected": "What important factors should I consider before buying and building a new home on vacant land in North Jersey?",
+    "submitted": "What important factors should I consider before buying and building a new home on vacant land in North Jersey?",
+    "matches": true
+  },
+  {
+    "article": 20,
+    "expected": "Why do skyscraper experts believe that New Jersey will see an increase in high-rises driven by development trends near Manhattan?",
+    "submitted": "Why do skyscraper experts believe that New Jersey will see an increase in high-rises driven by development trends near Manhattan?",
+    "matches": true
+  }
+]

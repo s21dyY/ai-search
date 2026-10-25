@@ -104,7 +104,8 @@ if model == "chatgpt":
             citations = json.loads(row.get("response_citations", "[]"))
             return len(citations)
         except:
-            return 0
+            # return 0  # Previous behavior counted unavailable citations as zero.
+            return float("nan")
     df["source_count"] = df.apply(count_sources, axis=1)
 elif model == "perplexity":
     if "number_of_sources" in df.columns:
@@ -137,13 +138,16 @@ trigram_buckets = get_bucketed_distribution(df["trigram_match"], bins=[0.0, 0.05
 
 # === Source Presence Metrics ===
 if model == "chatgpt":
-    original_source_pct = df.get("original_in_citations", 0).fillna(0).astype(int).mean() * 100
-    any_source_pct = (
-        df[["original_in_citations", "original_in_search_results", "republisher_in_citations", "republisher_in_search_results"]]
-        .fillna(0).astype(int).any(axis=1).mean() * 100
-    )
+    # Previous calculation treated unavailable source extraction as a negative match:
+    # original_source_pct = df.get("original_in_citations", 0).fillna(0).astype(int).mean() * 100
+    # any_source_pct = df[["original_in_citations", "original_in_search_results", "republisher_in_citations", "republisher_in_search_results"]].fillna(0).astype(int).any(axis=1).mean() * 100
+    original_source_pct = df["original_in_citations"].mean() * 100
+    source_flags = df[["original_in_citations", "original_in_search_results", "republisher_in_citations", "republisher_in_search_results"]]
+    known = source_flags.eq(1).any(axis=1) | source_flags.notna().all(axis=1)
+    any_source_pct = source_flags.max(axis=1).where(known).mean() * 100
 elif model == "perplexity":
-    original_source_pct = df.get("original_in_sources", 0).fillna(0).astype(int).mean() * 100
+    # original_source_pct = df.get("original_in_sources", 0).fillna(0).astype(int).mean() * 100
+    original_source_pct = df["original_in_sources"].mean() * 100
     any_source_pct = "NA"
 else:
     original_source_pct = "NA"

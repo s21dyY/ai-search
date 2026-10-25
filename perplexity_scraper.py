@@ -11,6 +11,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import sys
 from Chatbot_Scraper import BaseScraper
 from Prompt_Generator import PromptGenerator
+from urllib.parse import urlsplit
 
 # Perplexity scraper
 class PerplexityScraper(BaseScraper):
@@ -26,6 +27,7 @@ class PerplexityScraper(BaseScraper):
         # Response sources is a list of sites the LLM cited
         # Original in sources is a flag to indicate if the original article was cited in the sources list
         df[["prompt", "response_text", "number_of_sources", "response_sources", "original_in_sources", "screenshot_path", "request_time"]] = None
+        df["collection_status"] = None
         return df
 
     def _query_perplexity(self, query, row_num, dates):
@@ -50,6 +52,7 @@ class PerplexityScraper(BaseScraper):
             WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
             self.driver.save_screenshot(f"screenshots_perplexity_{dates}/Errors/Article_{row_num}_Query_Error.png")
             print(f"Exception{e}")
+            raise
 
     # query the model and extract the response and sources for one row of an input data frame at a time
     def _collect_data(self, row, row_num, dates):
@@ -60,12 +63,26 @@ class PerplexityScraper(BaseScraper):
                 row["headline"],
                 row.get("keywords", "") or "",
             )
-            row["request_time"] = self._query_perplexity(PROMPT, row_num, dates)
             row["prompt"] = PROMPT
+            row["request_time"] = self._query_perplexity(PROMPT, row_num, dates)
 
             # Extract the response HTML while removing emojis
             WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".prose")))
-            row["response_text"] = BaseScraper.remove_non_bmp(self.driver.find_element(By.CSS_SELECTOR, ".prose").get_attribute("innerHTML"))
+            # row["response_text"] = BaseScraper.remove_non_bmp(self.driver.find_element(By.CSS_SELECTOR, ".prose").get_attribute("innerHTML"))
+            response = self.driver.find_element(By.CSS_SELECTOR, ".prose")
+            if response.text.strip() == "Sign up and repeat your request.":
+                row["collection_status"] = "account_required"
+                print(f"Article {row_num}: Perplexity requires sign-in; skipping.")
+                return row
+            row["response_text"] = BaseScraper.remove_non_bmp(response.get_attribute("innerHTML"))
+
+            # Keep citations already present in the answer if the full Sources panel is blocked.
+            inline_sources = list(dict.fromkeys(link.get_attribute("href") for link in
+                response.find_elements(By.CSS_SELECTOR, 'a[href^="http"]')))
+            if inline_sources:
+                row["response_sources"] = inline_sources
+                if any(urlsplit(url).netloc in row["pageURL"] for url in inline_sources):
+                    row["original_in_sources"] = 1
 
             # click the sources button
             self.driver.click(By.XPATH, "//button[.//div[contains(normalize-space(), 'sources')]]")
@@ -80,24 +97,28 @@ class PerplexityScraper(BaseScraper):
             # sources_num = int(self.driver.find_element(By.TAG_NAME, "number-flow-react").get_attribute("aria-label"))
             row["number_of_sources"] = sources_num
 
-            # get the link for each source (cut off after tld)
-            sites_visited = []
-            sources = self.driver.find_elements(By.CSS_SELECTOR, 'a.group.flex.size-full.cursor-pointer.items-stretch')
-
-            try:
-                for i in range(sources_num):
-                    site = sources[i].text.split('/')[0]
-                    sites_visited.append(site)
-
-            except IndexError:
-                # save the list of sources anyway
-                pass
+            # Previous source cards, retained for the older interface:
+            # sites_visited = []
+            # sources = self.driver.find_elements(By.CSS_SELECTOR, 'a.group.flex.size-full.cursor-pointer.items-stretch')
+            # try:
+            #     for i in range(sources_num):
+            #         site = sources[i].text.split('/')[0]
+            #         sites_visited.append(site)
+            # except IndexError:
+            #     pass
+            sources = WebDriverWait(self.driver, 10).until(EC.presence_of_all_elements_located(
+                (By.CSS_SELECTOR, 'a.rounded-xl[href^="http"], a.group.flex.size-full.cursor-pointer.items-stretch')
+            ))
+            sites_visited = list(dict.fromkeys(source.get_attribute("href") for source in sources))
 
             row["response_sources"] = sites_visited
 
-            for s in sites_visited:
-                if s in row["pageURL"]:
-                    row["original_in_sources"] = 1
+            # Keep the existing site-level match, now using the actual source URLs.
+            # for s in sites_visited:
+            #     if s in row["pageURL"]:
+            #         row["original_in_sources"] = 1
+            row["original_in_sources"] = int(any(urlsplit(s).netloc in row["pageURL"] for s in sites_visited))
+            row["collection_status"] = "complete"
 
             # make a screen shot if Perplexity used a Gannett site as a source
             if row["original_in_sources"]:
@@ -110,6 +131,10 @@ class PerplexityScraper(BaseScraper):
             # special case if Perplexity used no sources and there's no "Sources" button
             if "data-testid='answer-mode-tabs-tab-sources'" in str(e):
                 row["number_of_sources"] = 0
+            elif row["response_text"] is not None:
+                # A guest sign-up prompt can interrupt sources after the answer arrives.
+                row["collection_status"] = "partial"
+                print(f"Article {row_num}: answer saved; source collection failed: {e}")
             else:
                 # let the calling try/catch block handle other exceptions
                 raise

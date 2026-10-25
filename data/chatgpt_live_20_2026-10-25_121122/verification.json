@@ -1,0 +1,24 @@
+{
+  "selected": 20,
+  "processed": 20,
+  "fresh_prompts": 20,
+  "exact_submitted_prompts": 20,
+  "answers_collected": 20,
+  "citations_collected": 20,
+  "search_results_collected": 20,
+  "articles_with_additional_result_urls": 20,
+  "stop_reason": null,
+  "final_csv_verified": true,
+  "source_errors": 0,
+  "total_citation_entries": 119,
+  "total_search_result_entries": 249,
+  "additional_result_entries": 145,
+  "unique_citation_urls_across_batch": 119,
+  "unique_search_result_urls_across_batch": 249,
+  "screenshots_verified": 9,
+  "source_code_matches_tested_version": true,
+  "answer_word_range": [
+    105,
+    2170
+  ]
+}

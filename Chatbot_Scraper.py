@@ -1,7 +1,6 @@
 # Scraping using method from here: https://www.zenrows.com/blog/selenium-cloudflare-bypass#seleniumbase
 # Selenium base API for reference: https://seleniumbase.io/help_docs/method_summary/#seleniumbase-methods-api-reference
 
-from logging import disable
 from pathlib import Path
 from seleniumbase import Driver
 import tempfile
@@ -18,10 +17,10 @@ from Gannett_API import GannettAPI
 class BaseScraper:
     def __init__(self):
         profile_dir = tempfile.mkdtemp()  # fresh per run; causes first-run unless we suppress it
-        # Set headless=False for debug and remove the --headless=new option so you can see what's happening in the browser
         self.driver = Driver(uc=True, headless=True, user_data_dir=profile_dir, chromium_arg=[
             "--headless=new",
-            "--guest",
+            # Fresh profile already isolates the run; keep normal browser storage.
+            # "--guest",  # Previous browser mode, retained for fallback.
             "--disable-gpu",
             "--no-sandbox",
             "--disable-dev-shm-usage",
@@ -31,7 +30,8 @@ class BaseScraper:
             "--disable-notifications",
             "--disable-infobars",
             "--disable-extensions",
-            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            # Use Chrome's current user agent; previous override retained for fallback.
+            # "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
             "--disable-features=SigninInterception",
             "--disable-sync",
             "--disable-default-apps",

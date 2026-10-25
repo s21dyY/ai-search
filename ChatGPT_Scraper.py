@@ -15,6 +15,67 @@ class ChatGPTScraper(BaseScraper):
         super().__init__()
         self.url = "https://chatgpt.com/"
         self.url_auth = "https://chat.openai.com/auth/login"
+        # Capture search activity before the guest UI hides it after answering.
+        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": r'''
+            (() => {
+                const originalFetch = window.fetch;
+                const sources = new Map();
+                const citations = new Map();
+                window.__aiSearchResults = {sources: [], citations: [], error: null};
+                async function capture(response) {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let pending = '';
+                    try {
+                        while (true) {
+                            const {value, done} = await reader.read();
+                            pending += decoder.decode(value || new Uint8Array(), {stream: !done});
+                            let end;
+                            while ((end = pending.indexOf('\n')) >= 0) {
+                                const line = pending.slice(0, end);
+                                pending = pending.slice(end + 1);
+                                if (!line.trim()) continue;
+                                const record = JSON.parse(line);
+                                const reasoning = record.status?.reasoning;
+                                for (const item of [...(reasoning?.items || []), reasoning?.activeItem]) {
+                                    for (const group of item?.searchSources?.groups || []) {
+                                        for (const entry of group.entries || []) {
+                                            if (!entry.url) continue;
+                                            const url = entry.url.replace('?utm_source=chatgpt.com', '');
+                                            sources.set(url, {url, headline: entry.title || '', snippet: entry.snippet || ''});
+                                        }
+                                    }
+                                }
+                                const components = record.dil?.appData?.opGenui?.componentResults;
+                                if (components) {
+                                    citations.clear();
+                                    for (const component of Object.values(components)) {
+                                        if (component.componentName !== 'Cite') continue;
+                                        for (const entry of component.state?.items || []) {
+                                            if (!entry.url) continue;
+                                            const url = entry.url.replace('?utm_source=chatgpt.com', '');
+                                            citations.set(url, {url, headline: entry.title || '', snippet: entry.snippet || ''});
+                                        }
+                                    }
+                                }
+                                window.__aiSearchResults.sources = [...sources.values()];
+                                window.__aiSearchResults.citations = [...citations.values()];
+                            }
+                            if (done) break;
+                        }
+                    } catch (error) {
+                        window.__aiSearchResults.error = String(error);
+                    } finally {
+                        reader.releaseLock();
+                    }
+                }
+                window.fetch = async function(...args) {
+                    const response = await originalFetch.apply(this, args);
+                    if (response.url.includes('/unauth-mweb/conversation/updates')) capture(response.clone());
+                    return response;
+                };
+            })();
+        '''})
     
     # Prep the dataframe by adding the columns that will store the scraped data
     def prep_data(self, df):
@@ -22,7 +83,7 @@ class ChatGPTScraper(BaseScraper):
         # Prompt is the input prompt that is used to query the model
         # Response_text is the response from the model
         # Response_citations is a JSON of the citations that the model cited in the response
-        # Response_search_results is a JSON of the search results that the model cited in the response
+        # Response_search_results includes guest search-activity results, which may overlap with citations.
         # Original_in_citations is a flag to indicate if the original article was cited in the citations list
         # Original_in_search_results is a flag to indicate if the original article was cited in the search results list (an extended list)
         df[["prompt", "response_text", "response_citations", "response_search_results", "original_in_citations", "original_in_search_results", "republisher_in_citations", "republisher_in_search_results", "screenshot_path", "request_time"]] = None
@@ -78,32 +139,34 @@ class ChatGPTScraper(BaseScraper):
             print("Logged into ChatGPT")
 
         except Exception as e:
-            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
-            self.driver.save_screenshot(f"screenshots_gpt_{dates}/_Login_Error.png")
-            print(f"Exception{e}")
+            print(f"ChatGPT login failed: {e}")
         
     # Query the ChatGPT model with a prompt
     def _query_chatgpt(self, query, row_num, dates):
-        try:
-            self.driver.uc_open(self.url)
-            sleep(random.uniform(1, 2))
-            # Delete what was in the input box
-            textarea = self.driver.find_element("div#prompt-textarea.ProseMirror  ") #Rename with ChatGPT textbox element name
-            textarea.send_keys(Keys.CONTROL, "a")
-            textarea.send_keys(Keys.BACKSPACE)
+        # self.driver.uc_open(self.url)
+        self.driver.default_get(self.url)  # Navigate synchronously in the current chat tab.
+        sleep(random.uniform(1, 2))
+        # Delete what was in the input box
+        # textarea = self.driver.find_element("div#prompt-textarea.ProseMirror  ")
+        textarea = WebDriverWait(self.driver, 20).until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, "div#prompt-textarea.ProseMirror, textarea#mobile-composer-prompt")
+        ))
+        # Enable web search on the guest composer without changing the query.
+        if textarea.get_attribute("id") == "mobile-composer-prompt":
+            self.driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Add files and more"]').click()
+            self.driver.find_element(By.CSS_SELECTOR, 'button[data-octane-web-search-toggle]').click()
+        # textarea.send_keys(Keys.CONTROL, "a")  # Previous selection shortcut did not clear reliably on macOS.
+        # textarea.send_keys(Keys.BACKSPACE)
+        textarea.clear()
 
-            self.driver.send_keys("div#prompt-textarea.ProseMirror  ", BaseScraper.remove_non_bmp(query)) # type: ignore
-            sleep(random.uniform(1, 3))
-            request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.driver.send_keys("#prompt-textarea", Keys.ENTER)
-            sleep(random.uniform(20, 25))
-            return request_time
-            #sources_button = self.driver.find_element(By.CSS_SELECTOR, ".not-prose")
-            
-        except Exception as e:
-            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
-            self.driver.save_screenshot(f"screenshots_gpt_{dates}/Errors/Article_{row_num}_Query_Error.png")
-            print(f"Exception{e}")
+        # self.driver.send_keys("div#prompt-textarea.ProseMirror  ", BaseScraper.remove_non_bmp(query))
+        textarea.send_keys(BaseScraper.remove_non_bmp(query))
+        sleep(random.uniform(1, 3))
+        request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # self.driver.send_keys("#prompt-textarea", Keys.ENTER)
+        textarea.send_keys(Keys.ENTER)
+        sleep(random.uniform(20, 25))
+        return request_time
         
     # Collect the data from the ChatGPT model for one row of the input data frame this is applied to
     def _collect_data(self, row, row_num, dates):
@@ -115,44 +178,53 @@ class ChatGPTScraper(BaseScraper):
                 row["headline"],
                 row.get("keywords", "") or "",
             )
-            row["request_time"] = self._query_chatgpt(PROMPT, row_num, dates)
             row["prompt"] = PROMPT
+            row["request_time"] = self._query_chatgpt(PROMPT, row_num, dates)
 
             # Extract the response HTML
             row["response_text"] = self._extract_response()
             
-            # Open sources tab
-            # self.driver.uc_click("button.not-prose.group\\/footnote")
-            self.driver.uc_click("button.group\\/footnote")
-            sleep(random.uniform(3, 5))
-
             # And then extract all of the source information broken into citations and search results
             try:
-                citations = self._extract_sources("Citations")
-                row["response_citations"] = json.dumps(citations)
-                for c in citations:
-                    if c["url"] in row["pageURL"]:
-                        row["original_in_citations"] = 1
+                # self.driver.uc_click("button.group\\/footnote")
+                sources_buttons = self.driver.find_elements(By.CSS_SELECTOR, "button.group\\/footnote")
+                if sources_buttons:
+                    sources_buttons[0].click()
+                    sleep(random.uniform(3, 5))
 
-                    # The headline in response will be truncated. It's imperfect but do a match on as much of the headline as possible. 
-                    h = c["headline"].split(" ...")[0]
-                    if h in row["headline"] and c["url"] not in row["pageURL"] and "en.wikipedia.org" not in c["url"]:
-                        row["republisher_in_citations"] = 1
+                for header, column, suffix in (
+                    ("Citations", "response_citations", "citations"),
+                    ("More", "response_search_results", "search_results"),
+                ):
+                    try:
+                        sources = self._extract_sources(header)
+                    except Exception as e:
+                        detail = str(e).split("Stacktrace:")[0].strip()
+                        row[column] = f"ERROR: {header} source extraction failed ({type(e).__name__}): {detail}"
+                        print(f"Article {row_num}: {row[column]}")
+                        continue
 
-                search_results = self._extract_sources("More")
-                row["response_search_results"] = json.dumps(search_results)
-                for sr in search_results:
-                    if sr["url"] in row["pageURL"]:
-                        row["original_in_search_results"] = 1
-                    
-                    h = sr["headline"].split(" ...")[0]
-                    if h in row["headline"] and sr["url"] not in row["pageURL"] and "en.wikipedia.org" not in sr["url"]:
-                        row["republisher_in_search_results"] = 1
+                    if sources is None:
+                        row[column] = f"ERROR: {header} sources unavailable in this response."
+                        continue
+
+                    row[column] = json.dumps(sources)
+                    row[f"original_in_{suffix}"] = row[f"republisher_in_{suffix}"] = 0
+                    for source in sources:
+                        if source["url"] in row["pageURL"]:
+                            row[f"original_in_{suffix}"] = 1
+
+                        # Truncated headline matching is only a possible republisher signal.
+                        h = source["headline"].split(" ...")[0]
+                        if h and h in row["headline"] and source["url"] not in row["pageURL"] and "en.wikipedia.org" not in source["url"]:
+                            row[f"republisher_in_{suffix}"] = 1
 
             except Exception as e:
-                WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
-                self.driver.save_screenshot(f"screenshots_gpt_{dates}/Errors/Article_{row_num}_Collecting_Sources_Error.png")
-                print(f"Exception{e}")
+                detail = str(e).split("Stacktrace:")[0].strip()
+                for column in ("response_citations", "response_search_results"):
+                    if row[column] is None:
+                        row[column] = f"ERROR: Source collection failed ({type(e).__name__}): {detail}"
+                print(f"Article {row_num}: source extraction failed: {e}")
 
             # if any copies were detected make a screen shot
             if row["original_in_citations"] or row["republisher_in_citations" ] or row["original_in_search_results"] or row ["republisher_in_search_results"]:
@@ -161,15 +233,20 @@ class ChatGPTScraper(BaseScraper):
                 self.driver.save_screenshot(screenshot_path)    
 
         except Exception as e:
-            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
-            self.driver.save_screenshot(f"screenshots_gpt_{dates}/Errors/Article_{row_num}_Collect_Error.png")
-            print(f"Exception{e}")
+            detail = str(e).split("Stacktrace:")[0].strip()
+            for column in ("response_citations", "response_search_results"):
+                if row[column] is None:
+                    row[column] = f"ERROR: Sources not collected because article collection failed ({type(e).__name__}): {detail}"
+            print(f"Article {row_num}: collection failed: {e}")
 
         return row
     
     # Helper to extract the response from the ChatGPT model
     def _extract_response(self):
-        response = self.driver.find_element(By.CSS_SELECTOR, ".markdown.prose").get_attribute("innerHTML")
+        # response = self.driver.find_element(By.CSS_SELECTOR, ".markdown.prose").get_attribute("innerHTML")
+        response = WebDriverWait(self.driver, 60).until(EC.visibility_of_element_located(
+            (By.CSS_SELECTOR, '.markdown.prose, [data-message-role="assistant"][data-message-complete] section[aria-label="DIL content"]')
+        )).get_attribute("innerHTML")
 
         return response
     
@@ -178,7 +255,74 @@ class ChatGPTScraper(BaseScraper):
         results = []
 
         # Find the section based on the header text
-        header_element = self.driver.find_element(By.XPATH, f"//li[text()='{header_text}']")
+        # header_element = self.driver.find_element(By.XPATH, f"//li[text()='{header_text}']")
+        headers = self.driver.find_elements(By.XPATH, f"//li[text()='{header_text}']")
+        if not headers:
+            # Guest search results arrive in search activity instead of a More section.
+            if header_text == "More":
+                # return None  # Previous implementation required the legacy More heading.
+                captured = self.driver.execute_script("return window.__aiSearchResults || null")
+                if captured and captured["error"]:
+                    raise RuntimeError(f"Guest search-result capture failed: {captured['error']}")
+                return (captured["sources"] or None) if captured else None
+            # Use the guest response's citation records; the previous popover implementation remains below as fallback.
+            captured = self.driver.execute_script("return window.__aiSearchResults || null")
+            if captured and captured["citations"]:
+                return captured["citations"]
+            links = self.driver.find_elements(By.CSS_SELECTOR,
+                '[data-message-role="assistant"][data-message-complete] section[aria-label="DIL content"] a[href^="http"]')
+            results = [{"url": link.get_attribute("href").replace("?utm_source=chatgpt.com", ""),
+                        "headline": link.text, "snippet": ""} for link in links]
+
+            # Guest source cards open URLs through window.open instead of anchor hrefs.
+            triggers = self.driver.find_elements(By.CSS_SELECTOR,
+                '[data-message-role="assistant"][data-message-complete] [role="button"][aria-haspopup="dialog"]')
+            if not triggers:
+                return results or None
+            self.driver.execute_script('''
+                window.__aiSearchURLs = [];
+                window.__aiSearchOpen = window.open;
+                window.__aiSearchClick = event => {
+                    const card = event.target.closest('button[aria-label^="Open "]');
+                    // if (card) window.__aiSearchCard = card.innerText; // Previous empty-button lookup.
+                    if (card) window.__aiSearchCard = card.parentElement.innerText;
+                };
+                document.addEventListener('click', window.__aiSearchClick, true);
+                window.open = url => {
+                    window.__aiSearchURLs.push({url: String(url), text: window.__aiSearchCard});
+                    return null;
+                };
+            ''')
+            try:
+                for trigger in triggers:
+                    if trigger.get_attribute("aria-expanded") != "true":
+                        trigger.send_keys(Keys.ENTER)
+                    popover = WebDriverWait(self.driver, 10).until(EC.visibility_of_element_located(
+                        (By.ID, trigger.get_attribute("aria-controls"))
+                    ))
+                    for button in popover.find_elements(By.CSS_SELECTOR, 'button[aria-label^="Open "]'):
+                        self.driver.execute_script("window.__aiSearchURLs = []")
+                        # button.click()  # Previous pointer click hits overlapping title text.
+                        button.send_keys(Keys.ENTER)
+                        source = WebDriverWait(self.driver, 10).until(
+                            lambda driver: driver.execute_script("return window.__aiSearchURLs.shift() || null"))
+                        lines = [line for line in source["text"].splitlines() if line]
+                        url = source["url"].replace("?utm_source=chatgpt.com", "")
+                        if not any(source["url"] == url for source in results):
+                            results.append({"url": url, "headline": lines[1] if len(lines) > 1 else lines[0],
+                                            "snippet": ""})
+                    trigger.send_keys(Keys.ENTER)
+            finally:
+                self.driver.execute_script('''
+                    window.open = window.__aiSearchOpen;
+                    document.removeEventListener('click', window.__aiSearchClick, true);
+                    delete window.__aiSearchURLs;
+                    delete window.__aiSearchOpen;
+                    delete window.__aiSearchClick;
+                    delete window.__aiSearchCard;
+                ''')
+            return results
+        header_element = headers[0]
         section = header_element.find_element(By.XPATH, "..")
         links = section.find_elements(By.TAG_NAME, "a")
         
@@ -218,7 +362,8 @@ def RunChatGPTScraper():
         
         df, num_rows = BaseScraper.get_API_data(dates, "gpt") # type: ignore
 
-        email, pwd = BaseScraper.get_login_creds("chatgpt") # type: ignore
+        # Account-free by default. Uncomment both login lines to restore sign-in.
+        # email, pwd = BaseScraper.get_login_creds("chatgpt")
 
         # Create a scraper instance
         scraper = ChatGPTScraper()
@@ -227,7 +372,7 @@ def RunChatGPTScraper():
         # Prep the dataframe by adding the columns that will store the scraped data
         df = scraper.prep_data(df)
 
-        scraper._login(email, pwd, dates)
+        # scraper._login(email, pwd, dates)
 
         # Call the scraper on each row of the dataframe
         current_row = 1

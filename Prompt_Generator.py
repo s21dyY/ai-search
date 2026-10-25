@@ -2,7 +2,7 @@
 Prompt_Generator.py
 -------------------
 Generates natural-language search prompts from article headlines and keywords
-by calling the OpenAI Chat Completions API (gpt-4o-mini by default).
+by calling Gemini's OpenAI-compatible API (gemini-3.5-flash-lite by default).
 
 The generated prompt is used as the actual query sent to AI chatbots
 (ChatGPT, Claude, Perplexity) instead of the hardcoded
@@ -13,18 +13,21 @@ how real users would search for the same story.
 Usage:
     from Prompt_Generator import PromptGenerator
 
-    pg = PromptGenerator()                     # reads OPENAI_API_KEY from env
+    pg = PromptGenerator()                     # reads GEMINI_API_KEY from env/.env
     prompt = pg.generate(row["headline"], row["keywords"])
 """
 
 import os
 import re
 import keyring
-import Set_Password
+from dotenv import load_dotenv
 from openai import OpenAI
 
 
 class PromptGenerator:
+    DEFAULT_MODEL = "gemini-3.5-flash-lite"
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
     # System prompt that instructs the LLM how to craft the search query.
     # Keep it tightly scoped so the output is a single sentence.
     SYSTEM_PROMPT = (
@@ -39,24 +42,33 @@ class PromptGenerator:
         "- Incorporate the most newsworthy keywords naturally."
     )
 
-    def __init__(self, model: str = "gpt-4o-mini", api_key: str | None = None):
+    def __init__(self, model: str | None = None, api_key: str | None = None):
         """
         Parameters
         ----------
-        model:   OpenAI model to use for prompt generation. gpt-4o-mini is
-                 fast and cheap — ideal for batch preprocessing.
-        api_key: Optional API key. If None, falls back to the OPENAI_API_KEY
-                 environment variable, then the system keyring.
+        model:   Gemini model override. Defaults to GEMINI_MODEL from the
+                 environment or .env, then gemini-3.5-flash-lite.
+        api_key: Optional Gemini API key. Otherwise reads GEMINI_API_KEY,
+                 then GOOGLE_API_KEY, then keyring service 'gemini' /
+                 username 'api_key'. Existing environment values take
+                 precedence over the repository's .env file.
         """
-        self.model = model
-        resolved_key = api_key or os.environ.get("OPENAI_API_KEY") or self._get_key_from_keyring()
+        load_dotenv(".env", override=False)
+        self.model = model or os.environ.get("GEMINI_MODEL") or self.DEFAULT_MODEL
+        resolved_key = (
+            api_key
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+            or self._get_key_from_keyring()
+        )
         if not resolved_key:
-            raise ValueError(
-                "No OpenAI API key found. Set the OPENAI_API_KEY environment "
-                "variable, pass api_key= to PromptGenerator(), or store it "
-                "with Set_Password.py under service name 'openai'."
-            )
-        self.client = OpenAI(api_key=resolved_key)
+            raise ValueError("Invalid API Key.")
+        self.client = OpenAI(
+            api_key=resolved_key,
+            base_url=self.BASE_URL,
+            timeout=30.0,
+            max_retries=1,
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -90,16 +102,22 @@ class PromptGenerator:
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user",   "content": user_message},
                 ],
-                max_tokens=80,
-                temperature=0.7,
+                max_tokens=256,
+                temperature=1.0,
+                extra_body={"reasoning_effort": "minimal"},
             )
-            prompt = response.choices[0].message.content.strip()
+            choice = response.choices[0]
+            if choice.finish_reason == "length":
+                raise ValueError("Gemini output was truncated by the token limit.")
+            prompt = (choice.message.content or "").strip()
             # Strip any stray surrounding quotes the model might add
-            prompt = prompt.strip('"').strip("'")
+            prompt = prompt.strip('"').strip("'").strip()
+            if not prompt:
+                raise ValueError("Gemini returned no prompt text.")
             return prompt
 
         except Exception as e:
-            print(f"[PromptGenerator] API call failed: {e}")
+            print(f"[PromptGenerator] Gemini API call failed: {e}")
             if fallback:
                 return self._fallback_prompt(headline)
             raise
@@ -166,9 +184,9 @@ class PromptGenerator:
 
     @staticmethod
     def _get_key_from_keyring() -> str | None:
-        """Try to retrieve the OpenAI API key from the system keyring."""
+        """Try to retrieve the Gemini API key from the system keyring."""
         try:
-            return keyring.get_password("openai", "api_key")
+            return keyring.get_password("gemini", "api_key")
         except Exception:
             return None
 

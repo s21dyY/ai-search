@@ -1,3 +1,29 @@
 .DS_Store
 __pycache__
 venv
+.venv/
+.env
+.env.*
+
+# Keep the source dataset tracked; ignore other CSVs and runtime output.
+/*.csv
+!/dataset.csv
+/screenshots_*/
+/downloaded_files/
+
+# Track only the latest successful ChatGPT run and its result evidence.
+/data/*
+!/data/chatgpt_live_20_2026-10-25_121122/
+/data/chatgpt_live_20_2026-10-25_121122/*
+!/data/chatgpt_live_20_2026-10-25_121122/gannett_gpt_2026-10-25.csv
+!/data/chatgpt_live_20_2026-10-25_121122/article_summary.csv
+!/data/chatgpt_live_20_2026-10-25_121122/RUN_REPORT.md
+!/data/chatgpt_live_20_2026-10-25_121122/verification.json
+!/data/chatgpt_live_20_2026-10-25_121122/checks.json
+!/data/chatgpt_live_20_2026-10-25_121122/selection.json
+!/data/chatgpt_live_20_2026-10-25_121122/prompt_provenance.json
+!/data/chatgpt_live_20_2026-10-25_121122/submitted_queries.json
+!/data/chatgpt_live_20_2026-10-25_121122/source_code_sha256.txt
+!/data/chatgpt_live_20_2026-10-25_121122/screenshots_gpt_2026-10-25/
+/data/chatgpt_live_20_2026-10-25_121122/screenshots_gpt_2026-10-25/*
+!/data/chatgpt_live_20_2026-10-25_121122/screenshots_gpt_2026-10-25/*.png
