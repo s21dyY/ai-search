@@ -40,17 +40,21 @@ class PerplexityScraper(BaseScraper):
 
     INPUT = ["#ask-input", "textarea[placeholder*='Ask']", "div[contenteditable='true']"]
     ANSWER = [".prose"]
-    STOP = [                                   # VERIFY
+    # Verified 2026-10-25 (logged in): stop button aria-label "Stop response (Esc)";
+    # the answer is split over several .prose blocks; inline citations carry
+    # data-pplx-citation-url; the "N sources" button opens a scroll list of all sources.
+    STOP = [
+        "button[aria-label^='Stop response']",
         "button[aria-label='Stop']",
         "button[aria-label='Stop generating']",
-        "button[data-testid='stop-generating-button']",
     ]
     SOURCES_BUTTON = [
+        "//button[contains(normalize-space(.), 'sources')]",
         "//button[.//div[contains(normalize-space(), 'sources')]]",
         "[data-testid='answer-mode-tabs-tab-sources']",
-        "[data-testid='answer-mode-tabs-tab-links']",        # 2026-10 UI shows a "Links" tab
-        "//button[normalize-space()='Links']",
     ]
+    SOURCE_LIST_LINKS = "[data-radix-scroll-area-viewport] a[href^='http']"
+    CITATION_ATTR = "data-pplx-citation-url"
     # Seen 2026-10-22 on a headless guest run: the "answer" was this sentence and a
     # "Sign in to continue using Perplexity" modal appeared.
     ANSWER_BLOCKED_TEXT = ("sign up and repeat your request", "sign in to continue")
@@ -115,22 +119,20 @@ class PerplexityScraper(BaseScraper):
     def is_generating(self) -> bool:
         return self.exists(self.STOP, visible=True)
 
-    def _answer_el(self):
-        el, _ = self.find_first(self.ANSWER, visible=False, last=True)
-        return el
+    def _answer_els(self):
+        return self._find_all(".prose")
 
     def answer_text(self) -> str:
-        el = self._answer_el()
-        return self._text(el).strip() if el is not None else ""
+        return "\n".join(t for t in (self._text(e).strip() for e in self._answer_els()) if t)
 
     def extract_answer(self) -> str:
-        el = self._answer_el()
-        if el is None:
-            return ""
-        try:
-            return remove_non_bmp(el.get_attribute("innerHTML") or "")
-        except Exception:
-            return ""
+        parts = []
+        for e in self._answer_els():
+            try:
+                parts.append(e.get_attribute("innerHTML") or "")
+            except Exception:
+                pass
+        return remove_non_bmp("\n".join(parts))
 
     def check_blocked(self):
         super().check_blocked()
@@ -140,48 +142,60 @@ class PerplexityScraper(BaseScraper):
                 raise BlockedError(f"answer says: {frag!r} (sign-in wall)")
 
     def has_sources(self) -> bool:
-        return self.exists(self.SOURCES_BUTTON, visible=True)
+        return self.exists(self.SOURCES_BUTTON, visible=True) or bool(self._find_all(f"[{self.CITATION_ATTR}]"))
 
     def extract_sources(self) -> tuple[list, list]:
+        """(citations, search_results): inline cited URLs, and the full 'N sources' list."""
+        citations, seen = [], set()
+        for el in self._find_all(f"[{self.CITATION_ATTR}]"):
+            url = el.get_attribute(self.CITATION_ATTR) or ""
+            if url.startswith("http") and url not in seen:
+                seen.add(url)
+                citations.append({"url": url, "headline": "", "snippet": "",
+                                  "publisher": self._text(el).split("+")[0].strip(), "kind": "inline"})
+
+        self._sources_expected = None
+        self._search_status = "none"
         btn, _ = self.find_first(self.SOURCES_BUTTON, visible=True)
         if btn is None:
-            return [], []
+            return citations, []
+        m = re.search(r"(\d+)\s+sources?", self._text(btn))
+        self._sources_expected = int(m.group(1)) if m else None
         try:
             btn.click()
-        except Exception as e:
-            raise RetryableError(f"sources button not clickable: {e}") from e
-        time.sleep(2)
+        except Exception:
+            self.driver.execute_script("arguments[0].click()", btn)
+        self.wait_until(lambda: len(self._source_links()) >= (self._sources_expected or 1), 6, 0.3)
 
-        expected = None
-        count_el, _ = self.find_first(self.SOURCES_COUNT, visible=True)
-        if count_el is not None:
-            m = re.match(r"\s*(\d+)", self._text(count_el))
-            if m:
-                expected = int(m.group(1))
-
-        links = []
-        for sel in self.SOURCE_LINKS:
-            links = self._find_all(sel)
-            if links:
-                break
-        if expected is not None:
-            links = links[:expected]
-
-        out, seen = [], set()
-        for a in links:
+        results, seen = [], set()
+        for a in self._source_links():
             try:
-                href = a.get_attribute("href") or ""
-                text = (a.text or "").strip()
+                url = a.get_attribute("href") or ""
+                parts = [t.strip() for t in (a.text or "").split("\n") if t.strip()]
             except Exception:
                 continue
-            # The old scraper only kept the site name shown on the card.
-            site = text.split("/")[0].strip() if text else ""
-            key = href or site
-            if not key or key in seen:
+            if url in seen:
                 continue
-            seen.add(key)
-            out.append({"url": href or site, "headline": text, "snippet": ""})
-        return out, []
+            seen.add(url)
+            results.append({"url": url, "site": parts[0] if parts else "",
+                            "headline": parts[1] if len(parts) > 1 else "",
+                            "snippet": parts[2] if len(parts) > 2 else "", "kind": "source"})
+        self._search_status = "ok" if results else "capture_failed"
+        for c in citations:                      # fill titles of cited pages from the list
+            hit = next((r for r in results if r["url"] == c["url"]), None)
+            if hit:
+                c["headline"], c["snippet"] = hit["headline"], hit["snippet"]
+        return citations, results
+
+    def _source_links(self):
+        return [a for a in self._find_all(self.SOURCE_LIST_LINKS)
+                if "perplexity.ai" not in (a.get_attribute("href") or "") and self._displayed(a)]
+
+    def collect_extras(self, result):
+        result.search_results_status = getattr(self, "_search_status", "none")
+        exp = getattr(self, "_sources_expected", None)
+        if exp is not None and len(result.search_results) < exp:
+            result.search_results_status = f"partial ({len(result.search_results)}/{exp})"
 
 
 if __name__ == "__main__":
