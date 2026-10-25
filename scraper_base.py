@@ -116,23 +116,47 @@ def normalize_url(url: str) -> str:
     return url.rstrip("/").lower()
 
 
+def domain_of(url: str) -> str:
+    return normalize_url(url).split("/")[0]
+
+
+def _title_overlap(a: str, b: str) -> float:
+    """Share of the shorter title's content words that appear in the other title."""
+    tok = lambda s: {w for w in re.findall(r"[a-z0-9']+", (s or "").lower()) if len(w) > 2}
+    ta, tb = tok(a), tok(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / min(len(ta), len(tb))
+
+
 def match_sources(sources: list, article_url: str, headline: str) -> tuple[int, int]:
     """
-    Same logic as the old scrapers, made symmetric.
     Returns (original_found, republisher_found) as 0/1.
+
+    original:    a source URL matches the article URL; or, when the source has no URL
+                 (ChatGPT citation popovers), its domain matches and its title overlaps
+                 the headline strongly.
+    republisher: a source on another domain whose title matches the headline.
     """
     original = 0
     republisher = 0
     target = normalize_url(article_url)
+    target_domain = domain_of(article_url)
     headline = (headline or "").strip()
     for s in sources:
         u = normalize_url(s.get("url", ""))
+        dom = s.get("domain") or (domain_of(u) if u else "")
+        title = (s.get("headline") or "").split(" ...")[0].strip()
+        overlap = _title_overlap(title, headline) if title and headline else 0.0
         if u and target and (u == target or u in target or target in u):
             original = 1
             continue
-        # The source headline is often truncated with " ..."; match on what is there.
-        h = (s.get("headline") or "").split(" ...")[0].strip()
-        if h and headline and h in headline and "en.wikipedia.org" not in u:
+        if not u and dom and target_domain and dom == target_domain and overlap >= 0.5:
+            original = 1
+            continue
+        if "wikipedia.org" in (u or dom):
+            continue
+        if title and headline and (title in headline or overlap >= 0.6) and dom != target_domain:
             republisher = 1
     return original, republisher
 

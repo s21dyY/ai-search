@@ -7,10 +7,22 @@ by which frontend the page loads:
   guest  logged-out page (internally "octane"). Verified 2026-10-22/24 with headless
          runs (local-docs/page-samples/chatgpt-headless/, chatgpt-articles/).
   app    logged-in React app, used when the browser profile holds a session
-         (see --login / --profile in scraper_base.cli). Selectors in APP below come
-         from the old scraper (history/ChatGPT_Scraper.py) and common testids and
-         are NOT yet verified: capture a logged-in page first with
-             python local-docs/capture_page_samples.py chatgpt --profile <name>
+         (see --login / --profile in scraper_base.cli). Verified 2026-10-25 with a
+         free account (local-docs/page-samples/chatgpt-test/): composer is
+         div.ProseMirror[role='textbox'], send/stop buttons are aria-label "Send" /
+         "Stop", Web search is a row in the "+" menu, the answer lives in
+         [data-markdown-text-style='assistant-message'] and the turn wrapper gets
+         data-talvt-turn-state='complete'. The old selectors (#prompt-textarea,
+         .markdown, data-testid, button.group/footnote, Citations/More panel) no
+         longer exist. Both modes render the same card layout, so one extractor
+         serves both.
+
+Citations in both modes come from two places:
+  cards     inline a[href] with a title / "Source:" line (JS extractor below)
+  popovers  publisher pills inside span[data-d-component='popover-trigger']; hovering
+            shows the cited pages (publisher, title, date, favicon domain) and each
+            entry opens its page via window.open(url), which the scraper stubs to
+            read the URL without opening a tab.
 
 Guest-page facts (verified):
   input box            textarea[name='prompt']
@@ -34,13 +46,15 @@ Usage (single thread):
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime
+from urllib.parse import unquote
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
-from scraper_base import BaseScraper, BlockedError, RetryableError, cli, remove_non_bmp
+from scraper_base import BaseScraper, BlockedError, RetryableError, cli, normalize_url, remove_non_bmp
 
 # Selector sets. Each value is an ordered candidate list; the first match wins.
 GUEST = dict(
@@ -58,23 +72,29 @@ GUEST = dict(
     panel_links=[],
 )
 
-APP = dict(  # TO VERIFY against a logged-in capture
-    input=["div#prompt-textarea"],
-    submit=["button[data-testid='send-button']", "button[aria-label='Send prompt']"],
-    stop=["button[data-testid='stop-button']", "button[aria-label='Stop streaming']",
-          "button[aria-label='Stop generating']"],
-    assistant=["[data-message-author-role='assistant']"],
+APP = dict(  # input + plus_menu verified 2026-10-25 (page-samples/chatgpt-test); rest TO VERIFY
+    input=["div.ProseMirror[role='textbox']", "div#prompt-textarea"],
+    submit=["form button[aria-label='Send']", "button[aria-label='Send prompt']",
+            "button[data-testid='send-button']"],
+    stop=["form button[aria-label='Stop']", "button[data-testid='stop-button']",
+          "button[aria-label='Stop streaming']"],
+    # Verified 2026-10-25: assistant text lives in data-markdown-text-style='assistant-message';
+    # the turn wrapper carries data-talvt-turn-state='complete' when generation is done.
+    assistant=["[data-markdown-text-style='assistant-message']",
+               "[data-content-search-unit-key$=':assistant']",
+               "[data-message-author-role='assistant']"],
     plus_menu=["button[data-testid='composer-plus-btn']", "button[aria-label='Add files and more']",
                "button[aria-label='Add photos & files']", "button[aria-label='Add photos and files']"],
-    plus_popover=["[role='menu']"],
-    ws_toggle=["//div[@role='menuitemradio'][contains(normalize-space(.), 'Web search')]",
-               "//div[@role='menuitem'][contains(normalize-space(.), 'Web search')]",
-               "//div[@role='menuitemradio'][contains(normalize-space(.), 'Search')]",
-               "//div[@role='menuitem'][contains(normalize-space(.), 'Search')]",
-               "button[aria-label='Search']"],
-    ws_on=["button[aria-label='Search'][aria-pressed='true']",
-           "//button[contains(@aria-label, 'Search') and @aria-pressed='true']",
-           "//form//*[self::button or self::div][contains(normalize-space(.), 'Search') and contains(@class, 'pill')]"],
+    plus_popover=["button[aria-label='Add files and more'][data-state='open']"],
+    # "+" menu rows are plain buttons with data-list-navigation-item (verified 2026-10-25).
+    ws_toggle=["//button[@data-list-navigation-item][contains(normalize-space(.), 'Web search')]",
+               "//div[@role='menuitemradio'][contains(normalize-space(.), 'Web search')]",
+               "//div[@role='menuitem'][contains(normalize-space(.), 'Web search')]"],
+    # Indicator that Web search is active in the composer: TO VERIFY.
+    ws_on=["//form//button[contains(@aria-label, 'Web search')]",
+           "//form//button[contains(@aria-label, 'Remove') and contains(normalize-space(.), 'Search')]",
+           "//form//*[self::button or self::span or self::div][normalize-space(.)='Search' and not(ancestor::*[@role='menu'])]",
+           "//form//*[contains(normalize-space(.), 'Web search') and not(self::script)]"],
     sources_control=["button.group\\/footnote", "button[aria-label*='Sources']",
                      "//button[contains(normalize-space(.), 'Sources')]"],
     panel_links=["[data-testid='sources-panel'] a[href]", "[role='dialog'] a[href]", "aside a[href]"],
@@ -160,21 +180,39 @@ class ChatGPTScraper(BaseScraper):
                                f"run: python chatgpt_scraper.py --login --profile {self.profile}")
         self.enable_web_search()
 
-    def enable_web_search(self):
-        """Turn on the Web search tool so the answer carries sources. Idempotent."""
+    def enable_web_search(self, attempts: int = 3):
+        """Turn on the Web search tool so the answer carries sources. Idempotent.
+
+        The app sometimes renders the '+' menu with 'Web search' greyed out (feature
+        config not loaded; the sidebar then also says 'Projects couldn't be loaded').
+        In that case reload the page and try again.
+        """
         S = self.S
         if self.exists(S["ws_on"], visible=True):
             return
-        toggle, _ = self.find_first(S["ws_toggle"], visible=True)
-        if toggle is None:
-            menu, _ = self.find_first(S["plus_menu"], visible=True)
-            if menu is None:
-                raise RetryableError("web search: '+' menu button not found")
-            menu.click()
-            time.sleep(0.8)
+        toggle = None
+        for attempt in range(attempts):
             toggle, _ = self.find_first(S["ws_toggle"], visible=True)
+            if toggle is None:
+                menu, _ = self.find_first(S["plus_menu"], visible=True)
+                if menu is None:
+                    raise RetryableError("web search: '+' menu button not found")
+                menu.click()
+                time.sleep(1.0)
+                toggle, _ = self.find_first(S["ws_toggle"], visible=True)
+            if toggle is not None:
+                break
+            greyed = self.exists(["//span[normalize-space(.)='Web search']"], visible=True)
+            print(f"  [chatgpt/{self.mode}] web search item {'disabled' if greyed else 'missing'}; "
+                  f"reloading ({attempt + 1}/{attempts})")
+            self._close_stray_dialogs()
+            self.driver.uc_open_with_reconnect(self.url, reconnect_time=4)
+            self.wait_until(lambda: bool(self._detect_mode()), timeout=20, poll=0.5)
+            time.sleep(2)
+            if self.exists(S["ws_on"], visible=True):
+                return
         if toggle is None:
-            raise RetryableError("web search: toggle not found in '+' menu")
+            raise RetryableError("web search: toggle not found or disabled in '+' menu")
         state = (toggle.get_attribute("aria-pressed") or toggle.get_attribute("aria-checked") or "").lower()
         if state != "true":
             toggle.click()
@@ -195,11 +233,25 @@ class ChatGPTScraper(BaseScraper):
             except Exception:
                 pass
 
+    def _close_stray_dialogs(self):
+        """App mode can leave a dialog or menu open that covers the composer."""
+        if self.exists(["[role='dialog'][data-state='open']", "[role='menu']"], visible=True):
+            try:
+                self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+                time.sleep(0.4)
+            except Exception:
+                pass
+
     def ask(self, prompt: str) -> str:
+        self._close_stray_dialogs()
         box, _ = self.find_first(self.S["input"], visible=True)
         if box is None:
             raise RetryableError("input box disappeared")
-        box.click()
+        try:
+            box.click()
+        except Exception:
+            # Something overlays the box; focus it directly instead.
+            self.driver.execute_script("arguments[0].focus(); arguments[0].click && arguments[0].click();", box)
         box.send_keys(Keys.CONTROL, "a")
         box.send_keys(Keys.BACKSPACE)
         text = remove_non_bmp(prompt)
@@ -261,43 +313,163 @@ class ChatGPTScraper(BaseScraper):
         except Exception as e:
             raise RetryableError(f"citation extraction failed: {e}") from e
 
+    # Publisher pills ("Reuters", "AP News +1") inside the answer are popover triggers.
+    # Hovering one opens a radix popover (verified 2026-10-25) listing the cited pages as
+    # buttons: aria-label "Open <publisher>", a favicon img whose src has domain=<site>,
+    # a title span and a date span. No URL is in the DOM; clicking opens the page.
+    POPOVER_TRIGGER = "span[data-d-component='popover-trigger']"
+    POPOVER_ENTRIES = [
+        "[data-radix-popper-content-wrapper] button[data-d-component='pressable']",
+        "[role='dialog'][data-state='open'] button[data-d-component='pressable']",
+    ]
+    resolve_popover_urls = True     # click each entry to read the real URL (slower)
+    popover_time_budget = 120       # s, per answer
+
+    _DATE_RE = re.compile(r"^[A-Z][a-z]+ \d{1,2}, \d{4}$")
+
+    def _hover(self, el):
+        from selenium.webdriver.common.action_chains import ActionChains
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'center'})", el)
+        ActionChains(self.driver).move_to_element(el).perform()
+
+    def _unhover(self):
+        try:
+            self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+        except Exception:
+            pass
+        time.sleep(0.2)
+
+    def _popover_entry_buttons(self):
+        for sel in self.POPOVER_ENTRIES:
+            btns = [b for b in self._find_all(sel) if self._displayed(b)]
+            if btns:
+                return btns
+        return []
+
+    def _read_popover_entry(self, b) -> dict:
+        publisher = (b.get_attribute("aria-label") or "").removeprefix("Open ").strip()
+        domain = ""
+        imgs = b.find_elements(By.CSS_SELECTOR, "img[src*='favicons?domain=']")
+        if imgs:
+            m = re.search(r"domain=([^&]+)", imgs[0].get_attribute("src") or "")
+            if m:
+                domain = normalize_url(unquote(m.group(1))).split("/")[0]
+        spans = [t for t in (x.text.strip() for x in b.find_elements(By.CSS_SELECTOR, "span[data-d-component='text']")) if t]
+        title = next((t for t in spans if t != publisher and not self._DATE_RE.match(t)), "")
+        date = next((t for t in spans if self._DATE_RE.match(t)), "")
+        return {"url": "", "domain": domain, "publisher": publisher, "headline": title,
+                "snippet": "", "date": date, "kind": "popover"}
+
+    # Popover entries open their page with window.open(url). Stub it in the page so a
+    # click records the URL instead of opening a tab (verified 2026-10-25).
+    _STUB_OPEN_JS = """
+      if (!window.__origOpen) { window.__origOpen = window.open; }
+      window.__opens = [];
+      window.open = function(u) { window.__opens.push(String(u)); return null; };
+    """
+    _RESTORE_OPEN_JS = "if (window.__origOpen) { window.open = window.__origOpen; } window.__opens = [];"
+
+    def _resolve_entry_url(self, btn, timeout: float = 3) -> str:
+        """Click a popover entry with window.open stubbed and return the recorded URL."""
+        self.driver.execute_script("window.__opens = [];")
+        btn.click()
+        end = time.time() + timeout
+        while time.time() < end:
+            opens = self.driver.execute_script("return window.__opens || [];")
+            if opens:
+                return str(opens[-1])
+            time.sleep(0.2)
+        return ""
+
+    def _collect_popover_sources(self, max_pills: int = 30) -> list:
+        """Hover each citation pill in the last answer and read its popover entries."""
+        el = self._last_assistant()
+        if el is None:
+            return []
+        out: list = []
+        seen: set = set()
+        started = time.time()
+        try:
+            triggers = [t for t in el.find_elements(By.CSS_SELECTOR, self.POPOVER_TRIGGER)
+                        if t.find_elements(By.CSS_SELECTOR, "[data-pill]") and self._displayed(t)]
+        except Exception:
+            return []
+        if self.resolve_popover_urls:
+            self.driver.execute_script(self._STUB_OPEN_JS)
+        try:
+            for t in triggers[:max_pills]:
+                if time.time() - started > self.popover_time_budget:
+                    print("  [chatgpt] popover time budget exhausted")
+                    break
+                try:
+                    self._hover(t)
+                    self.wait_until(lambda: bool(self._popover_entry_buttons()), 2.5, 0.2)
+                    entries = [self._read_popover_entry(b) for b in self._popover_entry_buttons()]
+                except Exception:
+                    self._unhover()
+                    continue
+                for i, e in enumerate(entries):
+                    key = (e["domain"], e["headline"].lower())
+                    if key in seen or not (e["domain"] or e["headline"]):
+                        continue
+                    seen.add(key)
+                    if self.resolve_popover_urls:
+                        try:
+                            btns = self._popover_entry_buttons()
+                            if i >= len(btns):                 # popover closed; reopen it
+                                self._hover(t)
+                                self.wait_until(lambda: len(self._popover_entry_buttons()) > i, 2.5, 0.2)
+                                btns = self._popover_entry_buttons()
+                            if i < len(btns):
+                                url = self._resolve_entry_url(btns[i])
+                                e["url"] = url.replace("?utm_source=chatgpt.com", "").replace("&utm_source=chatgpt.com", "")
+                        except Exception as ex:
+                            print(f"  [chatgpt] url resolve failed for {e['publisher']!r}: {str(ex)[:80]}")
+                    out.append(e)
+                self._unhover()
+        finally:
+            if self.resolve_popover_urls:
+                try:
+                    self.driver.execute_script(self._RESTORE_OPEN_JS)
+                except Exception:
+                    pass
+        return out
+
     def has_sources(self) -> bool:
-        if self.mode == "guest":
-            d = self._extract_guest()
-            return bool(d["citations"] or d["images"])
-        if self.exists(self.S["sources_control"], visible=True):
+        d = self._extract_guest()
+        if d["citations"] or d["images"]:
             return True
         el = self._last_assistant()
-        return el is not None and bool(el.find_elements(By.CSS_SELECTOR, "a[href*='utm_source=chatgpt.com']"))
+        return el is not None and bool(el.find_elements(By.CSS_SELECTOR, f"{self.POPOVER_TRIGGER} [data-pill]"))
 
     def extract_sources(self) -> tuple[list, list]:
+        # Same card layout in guest and app mode (verified 2026-10-25).
+        d = self._extract_guest()
+        citations, images = d["citations"], d["images"]
+        seen = {normalize_url(c["url"]) for c in citations}
+        for s in self._collect_popover_sources():
+            key = normalize_url(s["url"]) if s["url"] else f"{s['domain']}|{s['headline'].lower()}"
+            if key not in seen:
+                seen.add(key)
+                citations.append(s)
         if self.mode == "guest":
-            d = self._extract_guest()
-            return d["citations"], d["images"]
+            return citations, images
 
-        # App mode: open the sources panel, read "Citations" and "More" like the old scraper.
-        citations: list = []
+        # App mode: if a legacy sources panel exists, read "Citations" and "More" too.
         more: list = []
         control, _ = self.find_first(self.S["sources_control"], visible=True)
         if control is not None:
             try:
                 control.click()
                 time.sleep(2)
-                citations = self._links_in_section("Citations")
+                for s in self._links_in_section("Citations"):
+                    if s["url"] not in seen:
+                        seen.add(s["url"])
+                        citations.append(s)
                 more = self._links_in_section("More")
-                if not citations:
-                    for sel in self.S["panel_links"]:
-                        links = self._find_all(sel)
-                        if links:
-                            citations = self._links_to_sources(links)
-                            break
             except Exception as e:
                 print(f"  [chatgpt/app] sources panel failed: {e}")
-        if not citations:
-            el = self._last_assistant()
-            if el is not None:
-                citations = self._links_to_sources(el.find_elements(By.CSS_SELECTOR, "a[href*='utm_source=chatgpt.com']"))
-        return citations, more
+        return citations, (more or images)
 
     def _links_in_section(self, header_text: str) -> list:
         headers = self._find_all(f"//li[normalize-space(text())='{header_text}']")
