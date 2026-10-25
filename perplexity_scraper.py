@@ -1,193 +1,167 @@
-# Scraping using method from here: https://www.zenrows.com/blog/selenium-cloudflare-bypass#seleniumbase
-# Selenium base API for reference: https://seleniumbase.io/help_docs/method_summary/#seleniumbase-methods-api-reference
+"""
+perplexity_scraper.py
+---------------------
+Perplexity scraper, logged out (guest). Default "Search" mode always searches the
+web, so no toggle is needed.
 
-import random
+Selectors are carried over from history/perplexity_scraper.py, which worked as of
+the last commit. The stop-button selectors are guesses; if none matches,
+wait_for_answer() still works because it also relies on answer text stability.
+Verify against local-docs/page-samples/perplexity/ once captured.
+
+Usage (single thread):
+    python perplexity_scraper.py 2026-10-20 [--headful] [--limit 5]
+"""
+
+from __future__ import annotations
+
+import re
+import time
 from datetime import datetime
-from time import sleep
-from selenium.webdriver.common.keys import Keys
+
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import sys
-from Chatbot_Scraper import BaseScraper
-from Prompt_Generator import PromptGenerator
+from selenium.webdriver.common.keys import Keys
 
-# Perplexity scraper
+from scraper_base import BaseScraper, BlockedError, RetryableError, cli, remove_non_bmp
+
+
 class PerplexityScraper(BaseScraper):
-    def __init__(self):
-        super().__init__()
-        self.url = "https://www.perplexity.ai"
-        self.url_auth = "https://www.perplexity.ai/account"
+    name = "perplexity"
+    url = "https://www.perplexity.ai"
+    login_url = "https://www.perplexity.ai"      # use the "Sign In" button; email code login works
+    throttle = (30, 35)
 
-    # Prep the dataframe by adding the columns that will store the scraped data
-    def _prep_data(self, df):
-        # Prompt is the prompt that was used the query the model
-        # Response text is the response from the model
-        # Response sources is a list of sites the LLM cited
-        # Original in sources is a flag to indicate if the original article was cited in the sources list
-        df[["prompt", "response_text", "number_of_sources", "response_sources", "original_in_sources", "screenshot_path", "request_time"]] = None
-        return df
+    def is_logged_in(self) -> bool:
+        """Logged-in pages have no 'Sign In' control in the sidebar."""
+        if not self.exists(self.INPUT, visible=False):
+            return False
+        text = self.body_text()
+        return "sign in" not in text and "sign up" not in text
 
-    def _query_perplexity(self, query, row_num, dates):
+    INPUT = ["#ask-input", "textarea[placeholder*='Ask']", "div[contenteditable='true']"]
+    ANSWER = [".prose"]
+    STOP = [                                   # VERIFY
+        "button[aria-label='Stop']",
+        "button[aria-label='Stop generating']",
+        "button[data-testid='stop-generating-button']",
+    ]
+    SOURCES_BUTTON = [
+        "//button[.//div[contains(normalize-space(), 'sources')]]",
+        "[data-testid='answer-mode-tabs-tab-sources']",
+        "[data-testid='answer-mode-tabs-tab-links']",        # 2026-10 UI shows a "Links" tab
+        "//button[normalize-space()='Links']",
+    ]
+    # Seen 2026-10-22 on a headless guest run: the "answer" was this sentence and a
+    # "Sign in to continue using Perplexity" modal appeared.
+    ANSWER_BLOCKED_TEXT = ("sign up and repeat your request", "sign in to continue")
+    SOURCES_COUNT = ["//button[.//div[contains(normalize-space(), 'sources')]]//div[contains(normalize-space(), 'sources')]"]
+    SOURCE_LINKS = [
+        "a.group.flex.size-full.cursor-pointer.items-stretch",   # old working selector
+        "[data-testid='answer-mode-tabs-tabpanel-sources'] a[href]",
+    ]
+
+    BLOCKED_TEXT = tuple(BaseScraper.BLOCKED_TEXT) + (
+        "sign in to continue",
+        "you've hit your limit",
+    )
+
+    # -- steps ---------------------------------------------------------------
+
+    def open_new_chat(self):
+        self.driver.uc_open_with_reconnect(self.url, reconnect_time=4)
+        ok = self.wait_until(lambda: self.exists(self.INPUT), timeout=20, poll=0.5)
+        if not ok:
+            self.check_blocked()
+            if len(self.body_text()) < 50:
+                raise RetryableError("blank_page")
+            raise RetryableError("no input box on landing page")
+        if self.profile and not self.is_logged_in():
+            raise BlockedError(f"profile '{self.profile}' is not logged in; "
+                               f"run: python perplexity_scraper.py --login --profile {self.profile}")
+
+    def ask(self, prompt: str) -> str:
+        box, _ = self.find_first(self.INPUT, visible=True)
+        if box is None:
+            raise RetryableError("input box disappeared")
+        box.click()
+        box.send_keys(Keys.CONTROL, "a")
+        box.send_keys(Keys.BACKSPACE)
+        box.send_keys(remove_non_bmp(prompt))
+        request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        box.send_keys(Keys.ENTER)
+        return request_time
+
+    def is_generating(self) -> bool:
+        return self.exists(self.STOP, visible=True)
+
+    def _answer_el(self):
+        el, _ = self.find_first(self.ANSWER, visible=False, last=True)
+        return el
+
+    def answer_text(self) -> str:
+        el = self._answer_el()
+        return self._text(el).strip() if el is not None else ""
+
+    def extract_answer(self) -> str:
+        el = self._answer_el()
+        if el is None:
+            return ""
         try:
-            self.driver.uc_open(self.url)
-            sleep(random.uniform(1, 2))
-            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.ID, "ask-input")))
-            textarea = self.driver.find_element(By.ID, "ask-input")
+            return remove_non_bmp(el.get_attribute("innerHTML") or "")
+        except Exception:
+            return ""
 
-            # delete whatever was in the input box
-            textarea.send_keys(Keys.CONTROL, "a")
-            textarea.send_keys(Keys.BACKSPACE)
-            # put the new query in the input box
-            textarea.send_keys(BaseScraper.remove_non_bmp(query))
-            sleep(random.uniform(1, 3))
-            request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            textarea.send_keys(Keys.ENTER)
-            sleep(random.uniform(25, 30))
-            return request_time
+    def check_blocked(self):
+        super().check_blocked()
+        ans = self.answer_text().lower()
+        for frag in self.ANSWER_BLOCKED_TEXT:
+            if frag in ans:
+                raise BlockedError(f"answer says: {frag!r} (sign-in wall)")
 
+    def has_sources(self) -> bool:
+        return self.exists(self.SOURCES_BUTTON, visible=True)
+
+    def extract_sources(self) -> tuple[list, list]:
+        btn, _ = self.find_first(self.SOURCES_BUTTON, visible=True)
+        if btn is None:
+            return [], []
+        try:
+            btn.click()
         except Exception as e:
-            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
-            self.driver.save_screenshot(f"screenshots_perplexity_{dates}/Errors/Article_{row_num}_Query_Error.png")
-            print(f"Exception{e}")
+            raise RetryableError(f"sources button not clickable: {e}") from e
+        time.sleep(2)
 
-    # query the model and extract the response and sources for one row of an input data frame at a time
-    def _collect_data(self, row, row_num, dates):
-        sleep(random.uniform(30, 35))
-        try:
-            # Generate a natural-language prompt from the headline + keywords
-            PROMPT = self.prompt_generator.generate(
-                row["headline"],
-                row.get("keywords", "") or "",
-            )
-            row["request_time"] = self._query_perplexity(PROMPT, row_num, dates)
-            row["prompt"] = PROMPT
+        expected = None
+        count_el, _ = self.find_first(self.SOURCES_COUNT, visible=True)
+        if count_el is not None:
+            m = re.match(r"\s*(\d+)", self._text(count_el))
+            if m:
+                expected = int(m.group(1))
 
-            # Extract the response HTML while removing emojis
-            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".prose")))
-            row["response_text"] = BaseScraper.remove_non_bmp(self.driver.find_element(By.CSS_SELECTOR, ".prose").get_attribute("innerHTML"))
+        links = []
+        for sel in self.SOURCE_LINKS:
+            links = self._find_all(sel)
+            if links:
+                break
+        if expected is not None:
+            links = links[:expected]
 
-            # click the sources button
-            self.driver.click(By.XPATH, "//button[.//div[contains(normalize-space(), 'sources')]]")
-
-            # get the number of sources (based on number next to the sources button)
-            xpath = "//button[.//div[contains(normalize-space(), 'sources')]]//div[contains(normalize-space(), 'sources')]"
-
-            sources_el = WebDriverWait(self.driver, 10).until(EC.visibility_of_element_located((By.XPATH, xpath)))
-
-            sources_text = sources_el.text.strip()
-            sources_num = int(sources_text.split()[0])
-            # sources_num = int(self.driver.find_element(By.TAG_NAME, "number-flow-react").get_attribute("aria-label"))
-            row["number_of_sources"] = sources_num
-
-            # get the link for each source (cut off after tld)
-            sites_visited = []
-            sources = self.driver.find_elements(By.CSS_SELECTOR, 'a.group.flex.size-full.cursor-pointer.items-stretch')
-
+        out, seen = [], set()
+        for a in links:
             try:
-                for i in range(sources_num):
-                    site = sources[i].text.split('/')[0]
-                    sites_visited.append(site)
+                href = a.get_attribute("href") or ""
+                text = (a.text or "").strip()
+            except Exception:
+                continue
+            # The old scraper only kept the site name shown on the card.
+            site = text.split("/")[0].strip() if text else ""
+            key = href or site
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append({"url": href or site, "headline": text, "snippet": ""})
+        return out, []
 
-            except IndexError:
-                # save the list of sources anyway
-                pass
-
-            row["response_sources"] = sites_visited
-
-            for s in sites_visited:
-                if s in row["pageURL"]:
-                    row["original_in_sources"] = 1
-
-            # make a screen shot if Perplexity used a Gannett site as a source
-            if row["original_in_sources"]:
-                screenshot_path = f"screenshots_perplexity_{dates}/Article_{row_num}_SourceUsed.png"
-                row["screenshot_path"] = screenshot_path
-                WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
-                self.driver.save_screenshot(screenshot_path)
-
-        except Exception as e:
-            # special case if Perplexity used no sources and there's no "Sources" button
-            if "data-testid='answer-mode-tabs-tab-sources'" in str(e):
-                row["number_of_sources"] = 0
-            else:
-                # let the calling try/catch block handle other exceptions
-                raise
-
-        return row
-
-# Instantiates and uses the PerplexityScraper. Automatically pulls API data for the given date(s) from the Gannett_API.py file
-def RunPerplexityScraper():
-    try:
-        scraper = None
-        df = None
-        
-        # Collect from the Gannett API: expected format is YYYY-MM-DD or YYYY-MM-DD_DD for multiple days
-        try:
-            dates = sys.argv[1]
-        except:
-            print("Need a date parameter after the filename in the form of YYYY-MM-DD or YYYY-MM-DD_DD for multiple days")
-            sys.exit(1)
-        
-        df, num_rows = BaseScraper.get_API_data(dates, "perplexity")
-
-        scraper = PerplexityScraper()
-        scraper.prompt_generator = PromptGenerator()
-
-        # Prep the dataframe by adding the columns that will store the scraped data
-        df = scraper._prep_data(df)
-
-        # Call the scraper on each row of the dataframe
-        current_row = 1
-        for idx, row in df.iterrows():
-            try:
-                df.loc[idx] = scraper._collect_data(row, current_row, dates)
-            except Exception as e:
-                if not e is KeyboardInterrupt:
-                    # restart the scraper if the Perplexity page goes blank.
-                    print("Perplexity page went blank. Restarting the scraper...")
-                    scraper.close()
-                    sleep(random.uniform(60, 65))
-                    scraper = PerplexityScraper()
-                    scraper.prompt_generator = PromptGenerator()
-                    sleep(random.uniform(60, 65))
-
-                    # Retry once
-                    try:
-                        df.loc[idx] = scraper._collect_data(row, current_row, dates)
-                    except Exception as e:
-                        print(f"Retry failed on row {current_row}. Skipping. Error: {str(e)}")
-                        df.loc[idx] = None
-                        WebDriverWait(scraper.driver, 20).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
-                        try:
-                            scraper.driver.save_screenshot(f"screenshots_perplexity_{dates}/Errors/Article_{current_row}_Collect_Error.png")
-                        except:
-                            pass
-
-            print(f"Finished article {current_row} of {num_rows}. {round(float(current_row/num_rows) * 100, 1)} percent completed.")
-
-            # backup the progress every 50 articles
-            if current_row % 50 == 0:
-                df.to_csv(f"gannett_perplexity_{dates}.csv", index=False)
-                print(f"Progress snapshot saved to 'gannett_perplexity_{dates}.csv'.")
-
-            current_row += 1
-
-    # catch any unhandled errors or user interrupts
-    except KeyboardInterrupt:
-        print("\nKeyboardInterrupt caught. Saving progress...")
-
-    except Exception as e:
-        print(f"\nEncountered the following error:\n{str(e)}\n\nSaving progress...")
-
-    # clean up and save
-    finally:
-        if scraper:
-            scraper.close()
-        
-        if df is not None:
-            df.to_csv(f"gannett_perplexity_{dates}.csv", index=False)
-            print(f"'gannett_perplexity_{dates}.csv' saved successfully.")
 
 if __name__ == "__main__":
-    RunPerplexityScraper()
+    cli(PerplexityScraper)
