@@ -2,6 +2,8 @@
 
 Measures whether ChatGPT and Perplexity cite Gannett articles when asked about them. For each article, the pipeline asks both chatbots a question built from the headline, then records the answer, the cited sources and the pages the chatbot retrieved.
 
+> **Before you start: set up each account by hand once.** For every Google account you put in `accounts.toml`, sign in to ChatGPT and to Perplexity in a normal browser, create the account if asked, and click through every new-user screen (welcome tours, onboarding questions, feature announcements, cookie banner). The scraper only handles the screens it knows; an unexpected onboarding page can cover the chat box and make every article fail.
+
 ## Layout
 
 | Folder | Contents |
@@ -63,7 +65,15 @@ A walkthrough to check the whole pipeline on a handful of articles: logins, para
 
 ### 1. Prepare accounts
 
-Add at least two accounts to `accounts.toml`. Each needs to be a Google account; both sites log in with "Continue with Google". Accounts without two-step verification work best. Passkeys are handled automatically.
+Add accounts to `accounts.toml`. Each needs to be a Google account, set up by hand first (see "Before you start" at the top); both sites log in with "Continue with Google". Accounts without two-step verification work best. Passkeys are handled automatically.
+
+How many accounts:
+
+| Accounts | What you can test |
+|---|---|
+| 1 | Everything except parallelism: one worker runs the articles one after another; retries, crash recovery and resume all work |
+| 1, plus `--guest-workers 1` | ChatGPT only: one logged-in and one logged-out worker in parallel (Perplexity refuses logged-out use) |
+| 2 or more | Parallel runs on both sites |
 
 ```
 python -m scraper.chatgpt_scraper --login-all
@@ -86,7 +96,7 @@ This writes `data/gannett_API_data_partest.csv` with 6 articles from `ingest/dat
 python -m scraper.run_queue --model chatgpt --dates partest
 ```
 
-One worker starts per account, 15 seconds apart. Progress prints every 20 seconds:
+One worker starts per account, 15 seconds apart. Worker names are `w<number>-<account>`. Progress prints every 20 seconds (example with two accounts):
 
 ```
 started w1-acct1 (pid 19840) -> data/logs_chatgpt_partest/w1-acct1.log
@@ -113,11 +123,12 @@ Start a new run under a different name, and while a worker is busy, kill it from
 ```
 python tools/make_test_input.py --name killtest --n 4
 python -m scraper.run_queue --model chatgpt --dates killtest
-# second terminal, once the log shows w2 working on a task:
+# second terminal, once a worker log shows it working on a task
+# (use a worker name from the "started ..." lines, e.g. w2-acct2):
 pkill -9 -f "worker-id w2-acct2"
 ```
 
-Expected within about 20 seconds: `w2-acct2 exited with -9; released 1 task(s); restart 1`. The restarted worker re-runs the interrupted article and the run still ends with every task `done`.
+Expected within about 20 seconds: `w2-acct2 exited with -9; released 1 task(s); restart 1`. This works with a single account too; kill `w1-<account>`. The restarted worker re-runs the interrupted article and the run still ends with every task `done`.
 
 ### 5. Test resume and retry
 
