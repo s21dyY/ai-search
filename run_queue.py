@@ -104,6 +104,7 @@ def main():
     p.add_argument("--stuck-after", type=float, default=600)
     p.add_argument("--stuck-cap", type=int, default=3)
     p.add_argument("--max-restarts", type=int, default=5, help="per worker")
+    p.add_argument("--retry-failed", action="store_true", help="put failed tasks back in the queue first")
     a = p.parse_args()
 
     # --- workers ---
@@ -135,6 +136,8 @@ def main():
         print(f"Generating prompts for {len(new)} new articles...")
         build_prompts(new, use_generator=not a.no_generator)
     added, existing = q.enqueue(con, a.model, new)
+    if a.retry_failed:
+        print(f"Re-queued {q.reset_failed(con)} failed task(s).")
     print(f"Queue {dbp}: {added} added, {len(articles) - added} already queued | {q.counts(con)}")
     if q.open_work(con) == 0:
         print("Nothing to do.")

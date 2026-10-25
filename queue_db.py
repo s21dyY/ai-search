@@ -154,6 +154,12 @@ def release_worker(con, worker_id: str) -> int:
         (time.time(), worker_id)).rowcount
 
 
+def reset_failed(con) -> int:
+    """Put failed tasks back in the queue with a fresh try count (attempt history is kept)."""
+    return con.execute("UPDATE tasks SET status='pending', tries=0, stuck_count=0, next_run_at=0,"
+                       " finished_at=NULL, worker_id=NULL WHERE status='failed'").rowcount
+
+
 def counts(con) -> dict:
     out = {"pending": 0, "running": 0, "done": 0, "failed": 0}
     for r in con.execute("SELECT status, COUNT(*) FROM tasks GROUP BY status"):

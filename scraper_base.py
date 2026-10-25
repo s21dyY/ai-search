@@ -265,22 +265,39 @@ class BaseScraper:
         )
         self.driver.set_window_size(*window_size)
         self.driver.set_page_load_timeout(45)
-        self._main_window = self.driver.current_window_handle
 
     def focus_main_window(self):
-        """Close any extra window Chrome or a site opened and return to the main one."""
+        """
+        Close extra windows (e.g. a Chrome sign-in prompt) and switch to a real page.
+        Does not rely on a stored handle: seleniumbase's reconnect can replace the
+        original window, so keep the last window showing a web page and close the rest.
+        """
         try:
-            for h in list(self.driver.window_handles):
-                if h != self._main_window:
-                    self.driver.switch_to.window(h)
-                    self.driver.close()
-            self.driver.switch_to.window(self._main_window)
+            handles = list(self.driver.window_handles)
         except Exception:
+            return
+        if len(handles) <= 1:
+            if handles:
+                self.driver.switch_to.window(handles[0])
+            return
+        keep = None
+        for h in handles:
             try:
-                self.driver.switch_to.window(self.driver.window_handles[0])
-                self._main_window = self.driver.current_window_handle
+                self.driver.switch_to.window(h)
+                if self.driver.current_url.startswith("http"):
+                    keep = h
+            except Exception:
+                continue
+        keep = keep or handles[-1]
+        for h in handles:
+            if h == keep:
+                continue
+            try:
+                self.driver.switch_to.window(h)
+                self.driver.close()
             except Exception:
                 pass
+        self.driver.switch_to.window(keep)
 
     # -- lifecycle ---------------------------------------------------------
 
