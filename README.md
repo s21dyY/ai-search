@@ -82,6 +82,36 @@ data/<name>/
 
 The per-article file includes failed articles with empty results, in the same layout as the original scrapers' output, so `analysis/Analysis_Metrics.py` reads it directly. To delete a run, delete its folder; to redo one site, delete `data/<name>/<site>/`.
 
+## Performance
+
+Measured on 2026-10-25 with the same 10 articles for every run, both sites running at the same time.
+
+| Site | Version | Accounts | Time per article | 10 articles, measured | 100 articles, projected | vs. old scraper |
+|---|---|---|---|---|---|---|
+| ChatGPT | Old scraper | 1 | ~60 s (estimated) | n/a | ~100 min | 1× |
+| ChatGPT | New pipeline | 1 | 56 s | 9.4 min | ~94 min | 1.1× |
+| ChatGPT | New pipeline | 2 | 26 s | 4.3 min | ~43 min | 2.3× |
+| Perplexity | Old scraper | 1 | ~65 s (estimated) | n/a | ~108 min | 1× |
+| Perplexity | New pipeline | 1 | 62 s | 10.4 min | ~104 min | 1.0× |
+| Perplexity | New pipeline | 2 | 32 s | 5.3 min | ~53 min | 2.1× |
+
+- Time per article is the total run time divided by the number of articles. It includes browser start-up, the pause each account takes between articles to avoid rate limits, and any retries; one ChatGPT article in the 1-account run needed a second try.
+- With one account the new pipeline is about as fast as the old scraper, because both keep the same pause between articles. The speed-up comes from running several accounts at once.
+- The old scrapers no longer work with the current ChatGPT and Perplexity pages, so they could not be timed. Their figures are the sum of the fixed waits in their code (45–65 s per article for ChatGPT, 57–70 s for Perplexity) plus page loads.
+- Projections assume the time per article stays the same. They exclude the first-time login and any rate limits that may appear over a full day.
+- The test used sample articles and the fallback prompt ("What can you tell me about: <headline>").
+
+What the new pipeline adds besides speed:
+
+| | Old scraper | New pipeline |
+|---|---|---|
+| Several accounts at once | No | Yes; more accounts, faster runs |
+| Both sites at once | Two separate commands | One command |
+| Retry failed articles | ChatGPT: no. Perplexity: once | Up to 3 tries, possibly on another account |
+| Run interrupted halfway | Start the whole day again; results overwritten | Resumes; finished articles are not re-run |
+| Browser hangs or crashes | The run stops | Restarted; the article goes back to the queue |
+| Waiting for an answer | A fixed 20–30 s | Until the answer is complete, up to 4 min |
+
 ## Testing the parallel run
 
 A walkthrough to check the whole pipeline on a handful of articles: logins, parallel workers, retries, crash recovery and resume. It needs no Gannett API key. Plan on about 15 minutes.
