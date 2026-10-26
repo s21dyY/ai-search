@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="650" viewBox="0 0 1260 650" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="480" viewBox="0 0 1260 480" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
   <title>How the pipeline works</title>
   <defs>
     <marker id="blue-big" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="24" markerHeight="24" orient="auto">
@@ -12,125 +12,70 @@
     </marker>
   </defs>
 
-  <rect x="0" y="0" width="1260" height="650" fill="#FFFFFF"/>
+  <rect x="0" y="0" width="1260" height="480" fill="#FFFFFF"/>
 
-  <!-- ===== Top row: the normal path ===== -->
+  <!-- ===== Top row ===== -->
+  <rect x="30" y="30" width="206" height="160" rx="14" fill="#F1F2F4" stroke="#D3D7DD"/>
+  <text x="50" y="103" font-size="21" font-weight="700" fill="#111827">Input</text>
+  <text x="50" y="130" font-size="15" fill="#4B5563">Articles from one day</text>
 
-  <!-- 1. Input -->
-  <rect x="30" y="40" width="206" height="250" rx="14" fill="#F1F2F4" stroke="#D3D7DD"/>
-  <text x="50" y="88" font-size="21" font-weight="700" fill="#111827">Input</text>
-  <text font-size="14" fill="#4B5563">
-    <tspan x="50" y="122">Articles published on</tspan>
-    <tspan x="50" y="143">one day (Gannett API,</tspan>
-    <tspan x="50" y="164">or a test sample).</tspan>
-    <tspan x="50" y="199">Each headline becomes</tspan>
-    <tspan x="50" y="220">a question, written</tspan>
-    <tspan x="50" y="241">once per article.</tspan>
-  </text>
+  <rect x="280" y="30" width="206" height="160" rx="4" fill="#F1F2F4" stroke="#6B7280" stroke-width="1.5"/>
+  <text x="300" y="103" font-size="21" font-weight="700" fill="#111827">Job queue</text>
+  <text x="300" y="130" font-size="15" fill="#4B5563">One row per article</text>
 
-  <!-- 2. Job queue -->
-  <rect x="280" y="40" width="206" height="250" rx="4" fill="#F1F2F4" stroke="#6B7280" stroke-width="1.5"/>
-  <text x="300" y="88" font-size="21" font-weight="700" fill="#111827">Job queue</text>
-  <text font-size="14" fill="#4B5563">
-    <tspan x="300" y="122">One row per article,</tspan>
-    <tspan x="300" y="143">with status and tries.</tspan>
-    <tspan x="300" y="178">Safe to stop: running</tspan>
-    <tspan x="300" y="199">again picks up where</tspan>
-    <tspan x="300" y="220">it left off.</tspan>
-  </text>
+  <rect x="530" y="30" width="206" height="160" rx="14" fill="#E8EEF8" stroke="#C9D6EE"/>
+  <rect x="545" y="42" width="176" height="32" rx="8" fill="#FAFAF7"/>
+  <text x="559" y="63" font-size="14" fill="#111827"><tspan font-weight="700">Worker 1</tspan> · own account</text>
+  <rect x="545" y="80" width="176" height="32" rx="8" fill="#FAFAF7"/>
+  <text x="559" y="101" font-size="14" fill="#111827"><tspan font-weight="700">Worker 2</tspan> · own account</text>
+  <text x="633" y="133" font-size="20" font-weight="700" fill="#6B7280" text-anchor="middle">⋮</text>
+  <rect x="545" y="146" width="176" height="32" rx="8" fill="#FAFAF7"/>
+  <text x="559" y="167" font-size="14" fill="#111827"><tspan font-weight="700">Worker n</tspan> · own account</text>
 
-  <!-- 3. Workers -->
-  <rect x="530" y="40" width="206" height="250" rx="14" fill="#E8EEF8" stroke="#C9D6EE"/>
-  <rect x="545" y="56" width="176" height="44" rx="8" fill="#FAFAF7"/>
-  <text x="559" y="84" font-size="14" fill="#111827"><tspan font-weight="700">Worker 1</tspan> · own account</text>
-  <rect x="545" y="110" width="176" height="44" rx="8" fill="#FAFAF7"/>
-  <text x="559" y="138" font-size="14" fill="#111827"><tspan font-weight="700">Worker 2</tspan> · own account</text>
-  <rect x="545" y="164" width="176" height="44" rx="8" fill="#FAFAF7"/>
-  <text x="559" y="192" font-size="14" fill="#111827"><tspan font-weight="700">Worker 3</tspan> · own account</text>
-  <text font-size="13" fill="#374151">
-    <tspan x="547" y="236">Each takes the next article</tspan>
-    <tspan x="547" y="255">as soon as it is free, so</tspan>
-    <tspan x="547" y="274">they all work at once.</tspan>
-  </text>
+  <rect x="780" y="30" width="206" height="160" rx="14" fill="#F1F2F4" stroke="#D3D7DD"/>
+  <text x="800" y="103" font-size="21" font-weight="700" fill="#111827">Ask &amp; check</text>
+  <text x="800" y="130" font-size="15" fill="#4B5563">Was our article cited?</text>
 
-  <!-- 4. Ask & check -->
-  <rect x="780" y="40" width="206" height="250" rx="14" fill="#F1F2F4" stroke="#D3D7DD"/>
-  <text x="800" y="88" font-size="21" font-weight="700" fill="#111827">Ask &amp; check</text>
-  <text font-size="14" fill="#4B5563">
-    <tspan x="800" y="122">Ask ChatGPT or</tspan>
-    <tspan x="800" y="143">Perplexity, web search on.</tspan>
-    <tspan x="800" y="178">Did we get a real answer?</tspan>
-    <tspan x="800" y="213">Then: was our article,</tspan>
-    <tspan x="800" y="234">or a copy of it on</tspan>
-    <tspan x="800" y="255">another site, cited?</tspan>
-  </text>
+  <rect x="1030" y="30" width="206" height="160" rx="14" fill="#F1F2F4" stroke="#D3D7DD"/>
+  <text x="1050" y="103" font-size="21" font-weight="700" fill="#111827">Store</text>
+  <text x="1050" y="130" font-size="15" fill="#4B5563">Results table per site</text>
 
-  <!-- 5. Store -->
-  <rect x="1030" y="40" width="206" height="250" rx="14" fill="#F1F2F4" stroke="#D3D7DD"/>
-  <text x="1050" y="88" font-size="21" font-weight="700" fill="#111827">Store</text>
-  <text font-size="14" fill="#4B5563">
-    <tspan x="1050" y="122">One results table per</tspan>
-    <tspan x="1050" y="143">site in data/&lt;date&gt;/,</tspan>
-    <tspan x="1050" y="164">ready for the analysis.</tspan>
-    <tspan x="1050" y="199">Screenshots of matches</tspan>
-    <tspan x="1050" y="220">and errors.</tspan>
-    <tspan x="1050" y="255">GCS / BigQuery later.</tspan>
-  </text>
-
-  <!-- arrows between the top boxes -->
   <g stroke="#3B73D6" stroke-width="8" marker-end="url(#blue-big)">
-    <line x1="241" y1="165" x2="274" y2="165"/>
-    <line x1="491" y1="165" x2="524" y2="165"/>
-    <line x1="741" y1="165" x2="774" y2="165"/>
-    <line x1="991" y1="165" x2="1024" y2="165"/>
+    <line x1="241" y1="110" x2="274" y2="110"/>
+    <line x1="491" y1="110" x2="524" y2="110"/>
+    <line x1="741" y1="110" x2="774" y2="110"/>
+    <line x1="991" y1="110" x2="1024" y2="110"/>
   </g>
 
-  <!-- ===== Connectors to and from the failure band ===== -->
-  <line x1="883" y1="290" x2="883" y2="362" stroke="#A33A2E" stroke-width="2" marker-end="url(#red-head)"/>
-  <text x="895" y="333" font-size="17" font-weight="700" fill="#A33A2E">check fails</text>
+  <!-- ===== Connectors ===== -->
+  <line x1="883" y1="190" x2="883" y2="252" stroke="#A33A2E" stroke-width="2" marker-end="url(#red-head)"/>
+  <text x="895" y="228" font-size="17" font-weight="700" fill="#A33A2E">check fails</text>
 
-  <line x1="383" y1="370" x2="383" y2="298" stroke="#3B73D6" stroke-width="2.5" stroke-dasharray="7 6" marker-end="url(#blue-head)"/>
-  <text x="397" y="333" font-size="17" font-weight="700" fill="#3B73D6">back to queue</text>
+  <line x1="383" y1="260" x2="383" y2="198" stroke="#3B73D6" stroke-width="2.5" stroke-dasharray="7 6" marker-end="url(#blue-head)"/>
+  <text x="397" y="228" font-size="17" font-weight="700" fill="#3B73D6">back to queue</text>
 
   <!-- ===== Failure band ===== -->
-  <rect x="30" y="370" width="1206" height="250" rx="14" fill="#EAF0FA" stroke="#3B73D6" stroke-width="1.5"/>
+  <rect x="30" y="260" width="1206" height="196" rx="14" fill="#EAF0FA" stroke="#3B73D6" stroke-width="1.5"/>
   <text font-size="21" font-weight="700" fill="#111827">
-    <tspan x="52" y="482">If something</tspan>
-    <tspan x="52" y="508">goes wrong</tspan>
+    <tspan x="52" y="352">If something</tspan>
+    <tspan x="52" y="378">goes wrong</tspan>
   </text>
 
-  <!-- Retryable -->
-  <rect x="210" y="388" width="440" height="102" rx="10" fill="#FAFAF7"/>
-  <text x="230" y="419" font-size="17" font-weight="700" fill="#111827">Retryable</text>
-  <text font-size="14" fill="#4B5563">
-    <tspan x="230" y="445">Page did not load, or no answer in time. Back to</tspan>
-    <tspan x="230" y="466">the queue; 2 min cooldown, then any worker takes it.</tspan>
-  </text>
+  <rect x="210" y="276" width="440" height="76" rx="10" fill="#FAFAF7"/>
+  <text x="230" y="307" font-size="17" font-weight="700" fill="#111827">Retryable</text>
+  <text x="230" y="333" font-size="15" fill="#4B5563">Back to the queue after 2 minutes</text>
 
-  <!-- arrow Retryable -> 3rd failure -->
-  <line x1="660" y1="439" x2="696" y2="439" stroke="#3B73D6" stroke-width="5" marker-end="url(#blue-big)"/>
+  <line x1="660" y1="314" x2="696" y2="314" stroke="#3B73D6" stroke-width="5" marker-end="url(#blue-big)"/>
 
-  <!-- 3rd failure -->
-  <rect x="706" y="388" width="510" height="102" rx="10" fill="#FAFAF7"/>
-  <text x="726" y="419" font-size="17" font-weight="700" fill="#111827">3rd failure</text>
-  <text font-size="14" fill="#4B5563">
-    <tspan x="726" y="445">Mark the article failed and keep the error screenshot.</tspan>
-    <tspan x="726" y="466">It stays in the results as an empty row, so nothing is lost.</tspan>
-  </text>
+  <rect x="706" y="276" width="510" height="76" rx="10" fill="#FAFAF7"/>
+  <text x="726" y="307" font-size="17" font-weight="700" fill="#111827">3rd failure</text>
+  <text x="726" y="333" font-size="15" fill="#4B5563">Marked failed, kept as an empty row</text>
 
-  <!-- Blocked -->
-  <rect x="210" y="502" width="440" height="102" rx="10" fill="#FAFAF7"/>
-  <text x="230" y="533" font-size="17" font-weight="700" fill="#111827">Blocked</text>
-  <text font-size="14" fill="#4B5563">
-    <tspan x="230" y="559">Login wall or "too many requests". Back to the</tspan>
-    <tspan x="230" y="580">queue at once; that worker pauses for a while.</tspan>
-  </text>
+  <rect x="210" y="364" width="440" height="76" rx="10" fill="#FAFAF7"/>
+  <text x="230" y="395" font-size="17" font-weight="700" fill="#111827">Blocked</text>
+  <text x="230" y="421" font-size="15" fill="#4B5563">Back to the queue, worker pauses</text>
 
-  <!-- Worker stops -->
-  <rect x="706" y="502" width="510" height="102" rx="10" fill="#FAFAF7"/>
-  <text x="726" y="533" font-size="17" font-weight="700" fill="#111827">Worker stops or hangs</text>
-  <text font-size="14" fill="#4B5563">
-    <tspan x="726" y="559">Restarted automatically. The article it was working on</tspan>
-    <tspan x="726" y="580">goes back to the queue for another worker.</tspan>
-  </text>
+  <rect x="706" y="364" width="510" height="76" rx="10" fill="#FAFAF7"/>
+  <text x="726" y="395" font-size="17" font-weight="700" fill="#111827">Worker stops</text>
+  <text x="726" y="421" font-size="15" fill="#4B5563">Restarted, its article goes back to the queue</text>
 </svg>
