@@ -91,7 +91,7 @@ Measured on 2026-10-25 with the same 10 articles in every run. It is not recorde
 | How | 1 account; ChatGPT first, then Perplexity | 1 account per site; both sites at the same time, in two terminals | 2 accounts per site; both sites at the same time |
 | 10 articles (measured) | 19.7 min | 10.4 min | 5.3 min |
 | 100 articles (projected) | ~197 min | ~104 min | ~53 min |
-| New pipeline is faster by | 3.7× | 2.0× | |
+| New pipeline is faster by | 3.7× | 1.9× | |
 
 - The old scrapers no longer work with the current ChatGPT and Perplexity pages, so the "old way" columns use the new pipeline with one account per site, which runs at the old scrapers' speed. "One site after the other" adds up each site's time (ChatGPT 9.4 min, Perplexity 10.4 min); "both sites at once" is the slower of the two.
 - Of the 3.7×, about 2× comes from using two accounts per site and about 1.9× from running both sites at the same time.
