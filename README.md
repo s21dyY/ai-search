@@ -84,17 +84,17 @@ The per-article file includes failed articles with empty results, in the same la
 
 ## Performance
 
-Measured on 2026-10-25 with the same 10 articles in both runs.
+Measured on 2026-10-25 with the same 10 articles in every run. It is not recorded how the old scrapers were run, so both possible ways are shown.
 
-| | Separately | In parallel |
-|---|---|---|
-| How | 1 account; ChatGPT first, then Perplexity | 2 accounts per site; both sites at the same time |
-| 10 articles (measured) | 19.7 min | 5.3 min |
-| 100 articles (projected) | ~197 min | ~53 min |
+| | Old way: one site after the other | Old way: both sites at once | New pipeline: in parallel |
+|---|---|---|---|
+| How | 1 account; ChatGPT first, then Perplexity | 1 account per site; both sites at the same time, in two terminals | 2 accounts per site; both sites at the same time |
+| 10 articles (measured) | 19.7 min | 10.4 min | 5.3 min |
+| 100 articles (projected) | ~197 min | ~104 min | ~53 min |
+| New pipeline is faster by | 3.7× | 2.0× | |
 
-Running in parallel is about 3.7 times faster.
-
-- "Separately" is how the old scrapers ran: one browser, one site at a time. It adds up each site's measured time with one account (ChatGPT 9.4 min, Perplexity 10.4 min). With one account the new pipeline runs at the old scrapers' speed, so this column also stands for the old way.
+- The old scrapers no longer work with the current ChatGPT and Perplexity pages, so the "old way" columns use the new pipeline with one account per site, which runs at the old scrapers' speed. "One site after the other" adds up each site's time (ChatGPT 9.4 min, Perplexity 10.4 min); "both sites at once" is the slower of the two.
+- Of the 3.7×, about 2× comes from using two accounts per site and about 1.9× from running both sites at the same time.
 - "In parallel" is what `python run.py` does with two accounts in `accounts.toml`. More accounts make it faster still.
 - Times include browser start-up, the pause each account takes between articles to avoid rate limits, and retries.
 - Projections assume the time per article stays the same. They exclude the first-time login and any rate limits over a full day.
