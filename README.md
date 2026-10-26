@@ -4,24 +4,9 @@ Measures whether ChatGPT and Perplexity cite Gannett articles when asked about t
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A["News articles published on one day"] --> B["Turn each headline into a question"]
-    B --> L[("To-do list of questions")]
-    L --> W1["Account 1"]
-    L -- "ask ChatGPT and Perplexity<br/>at the same time" --> W2["Account 2"]
-    L --> W3["Account 3"]
-    W1 & W2 & W3 --> D["Save the answers and their sources"]
-    W3 -. "failed? back on the list,<br/>up to 3 tries" .-> L
-    D --> E["Check whether our article<br/>or a copy of it was cited"]
-    E --> F["Results table"]
-```
+![How the pipeline works: input, job queue, workers with their own accounts, ask and check, store; failures go back to the queue](docs/pipeline.svg)
 
-**Working in parallel.** All questions go on one to-do list. Each account takes the next question as soon as it is free, so several questions are asked at the same time; more accounts make the run faster. ChatGPT and Perplexity run side by side, each with its own accounts.
-
-**Trying again.** If a question fails, for example because the page did not load, it goes back on the list and is asked again 2 minutes later, possibly by a different account. After 3 failed tries it is marked as failed and kept in the results as an empty row, so no article goes missing. If a whole run stops halfway, starting it again picks up where it left off.
-
-One command, `python run.py`, does all of this.
+ChatGPT and Perplexity run side by side, each with its own workers; more accounts make a run faster. One command, `python run.py`, does all of this.
 
 > **Before you start: set up each account by hand once.** For every Google account you put in `accounts.toml`, sign in to ChatGPT and to Perplexity in a normal browser, create the account if asked, and click through every new-user screen (welcome tours, onboarding questions, feature announcements, cookie banner). The scraper only handles the screens it knows; an unexpected onboarding page can cover the chat box and make every article fail.
 
