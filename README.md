@@ -35,9 +35,9 @@ Chrome must be installed.
 python run.py
 ```
 
-That is all. It asks a few questions (press Enter to accept the default shown in brackets), then:
+That is all. It asks a few questions (press Enter to accept the default shown in brackets). The run name defaults to **yesterday's date**, the latest day whose articles are all published; `today`, `yesterday`, a date, or a range like `2026-10-20_22` also work. Any other name is a test run on sample articles. It also points out unfinished runs so you can resume them. Then it:
 
-1. gets the input: an existing file in `data/<name>/`, the Gannett API when the name is a date, or a test sample from `ingest/dataset.csv` for any other name
+1. gets the input: an existing file in `data/<name>/`; for a date, the Gannett API (needs `GANNETT_API_KEY`; sample articles are never used for a date); for any other name, a test sample from `ingest/dataset.csv`
 2. checks every account in `accounts.toml` is logged in on each site, logging in again automatically when needed; a browser window opens only if Google wants a manual step
 3. runs ChatGPT and Perplexity at the same time, one worker per account, with retries
 4. prints a summary and offers to run `analysis/Analysis_Metrics.py` on the results
@@ -47,7 +47,8 @@ It switches to the project's `venv` by itself, so `python3 run.py` works without
 Answers can also be given as options, for example:
 
 ```
-python run.py --name 2026-10-20 --sites both --yes          # real date, no questions
+python run.py --yes                                        # yesterday, both sites, no questions (good for a daily schedule)
+python run.py --name 2026-10-20 --sites both --yes          # a specific date
 python run.py --name mytest --test-articles 6 --yes         # quick test without an API key
 python run.py --name 2026-10-20 --retry-failed              # re-run articles that failed
 ```

@@ -76,17 +76,54 @@ def py(*args, **kw):
 
 # -- steps -----------------------------------------------------------------------
 
+def default_date() -> str:
+    """Yesterday: the most recent day whose articles are all published."""
+    import datetime as dt
+    return (dt.date.today() - dt.timedelta(days=1)).isoformat()
+
+
+def resolve_name(name: str) -> str:
+    import datetime as dt
+    shortcuts = {"yesterday": default_date(), "today": dt.date.today().isoformat()}
+    return shortcuts.get(name.lower(), name)
+
+
+def unfinished(run: str) -> str:
+    """'chatgpt: 3 pending, 1 failed' for runs with work left, else ''."""
+    import sqlite3
+    parts = []
+    for site in SITES:
+        db = paths.queue_db(run, site)
+        if not db.exists():
+            continue
+        try:
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            c = dict(con.execute("SELECT status, COUNT(*) FROM tasks GROUP BY status").fetchall())
+            con.close()
+        except Exception:
+            continue
+        left = {k: c.get(k, 0) for k in ("pending", "running", "failed") if c.get(k)}
+        if left:
+            parts.append(f"{site}: " + ", ".join(f"{v} {k}" for k, v in left.items()))
+    return "; ".join(parts)
+
+
 def choose_name(arg: str | None) -> str:
     if arg:
-        return arg
-    # Most recently used first.
+        return resolve_name(arg)
     runs = [p.name for p in sorted((p for p in paths.DATA.iterdir() if p.is_dir() and p.name != "page-samples"),
                                    key=lambda p: p.stat().st_mtime, reverse=True)] if paths.DATA.exists() else []
-    if runs:
-        say("Existing runs: " + ", ".join(runs[:8]) + (" ..." if len(runs) > 8 else ""))
-    say("Use a date (YYYY-MM-DD, or YYYY-MM-DD_DD for a range) for real data, or any name for a test.")
+    dated = [r for r in runs if DATE_RE.match(r)]
+    if dated:
+        say("Recent dated runs: " + ", ".join(dated[:6]))
+    left = [(r, unfinished(r)) for r in runs[:10]]
+    for r, info in left:
+        if info:
+            say(f"Unfinished: {r} ({info}). Enter its name to resume.")
+    say("Enter a date (YYYY-MM-DD, YYYY-MM-DD_DD for a range, 'today' or 'yesterday') for real data,")
+    say("or any other name for a test run on sample articles.")
     while True:
-        name = ask("Run name", runs[0] if runs else time.strftime("%Y-%m-%d"))
+        name = resolve_name(ask("Run name", default_date()))
         if re.match(r"^[A-Za-z0-9_.-]+$", name):
             return name
         say("Use letters, digits, '-', '_' or '.' only.")
@@ -100,20 +137,23 @@ def ensure_input(name: str, test_articles: int | None) -> bool:
         say(f"Input: {paths.rel(inp)} ({n} articles)")
         return True
 
-    if test_articles is None and DATE_RE.match(name):
-        if os.environ.get("GANNETT_API_KEY"):
-            if ask_yes(f"No input for {name}. Fetch articles from the Gannett API?"):
-                r = py("-m", "ingest.Gannett_API", name)
-                if r.returncode == 0 and paths.input_csv(name).exists():
-                    return ensure_input(name, None)
-                say("The API fetch failed; see the message above.")
-        else:
-            say(f"No input for {name}, and GANNETT_API_KEY is not set, so articles cannot be fetched.")
-            say("Set it with:  export GANNETT_API_KEY=...   or create a test input instead.")
+    if DATE_RE.match(name) and test_articles is None:
+        # Real date: only real articles. Never put sample articles under a date name.
+        if not os.environ.get("GANNETT_API_KEY"):
+            say(f"No input for {name}, and GANNETT_API_KEY is not set, so its articles cannot be fetched.")
+            say("Set it with:  export GANNETT_API_KEY=...   then run again.")
+            say("To try the pipeline without a key, use a test name instead, e.g.  python run.py --name mytest")
+            return False
+        say(f"Fetching articles for {name} from the Gannett API...")
+        r = py("-m", "ingest.Gannett_API", name)
+        if r.returncode == 0 and paths.input_csv(name).exists():
+            return ensure_input(name, None)
+        say("The API fetch failed; see the message above.")
+        return False
 
-    n = test_articles if test_articles is not None else None
+    n = test_articles
     if n is None:
-        if not ask_yes(f"Create a test input for '{name}' from the sample dataset?"):
+        if not ask_yes(f"'{name}' is a test name. Create a test input from the sample dataset?"):
             return False
         n = int(ask("How many articles", "6"))
     r = py("tools/make_test_input.py", "--name", name, "--n", str(n), capture_output=True, text=True)
@@ -261,7 +301,7 @@ def run_analysis(files: list[Path]) -> None:
 def main():
     global YES
     p = argparse.ArgumentParser(description="Run the whole pipeline. With no options it asks what to do.")
-    p.add_argument("--name", help="run name: a date (YYYY-MM-DD or YYYY-MM-DD_DD) or a test name")
+    p.add_argument("--name", help="a date (YYYY-MM-DD, YYYY-MM-DD_DD, today, yesterday) or a test name; default: yesterday")
     p.add_argument("--sites", help="chatgpt, perplexity, or both (comma-separated)")
     p.add_argument("--limit", type=int, help="only the first N articles")
     p.add_argument("--test-articles", type=int, help="create a test input with N sample articles if none exists")
