@@ -8,19 +8,13 @@ Measures whether ChatGPT and Perplexity cite Gannett articles when asked about t
 flowchart TD
     A["News articles published on one day"] --> B["Turn each headline into a question"]
     B --> L[("To-do list of questions")]
-
-    L --> W1["Account 1<br/>takes the next question<br/>and asks the chatbot"]
-    L -- "all at the same time" --> W2["Account 2<br/>takes the next question<br/>and asks the chatbot"]
-    L --> W3["Account 3<br/>takes the next question<br/>and asks the chatbot"]
-
-    W1 & W2 & W3 --> OK{"Did it work?"}
-    OK -- "Yes" --> D["Save the answer<br/>and the sources it used"]
-    OK -- "No" --> R{"Already tried<br/>3 times?"}
-    R -- "No: wait 2 minutes,<br/>put it back on the list" --> L
-    R -- "Yes" --> X["Mark as failed<br/>(kept in the results, left empty)"]
-    D --> E["Check the sources:<br/>was our article cited?<br/>was a copy on another site cited?"]
-    E --> F["Results table and summary numbers"]
-    X --> F
+    L --> W1["Account 1"]
+    L -- "ask ChatGPT and Perplexity<br/>at the same time" --> W2["Account 2"]
+    L --> W3["Account 3"]
+    W1 & W2 & W3 --> D["Save the answers and their sources"]
+    W3 -. "failed? back on the list,<br/>up to 3 tries" .-> L
+    D --> E["Check whether our article<br/>or a copy of it was cited"]
+    E --> F["Results table"]
 ```
 
 **Working in parallel.** All questions go on one to-do list. Each account takes the next question as soon as it is free, so several questions are asked at the same time; more accounts make the run faster. ChatGPT and Perplexity run side by side, each with its own accounts.
