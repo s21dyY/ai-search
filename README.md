@@ -5,15 +5,29 @@ Measures whether ChatGPT and Perplexity cite Gannett articles when asked about t
 ## How it works
 
 ```mermaid
-flowchart LR
-    A["News articles<br/>published on one day"] --> B["Turn each headline<br/>into a question"]
-    B --> C["Ask ChatGPT<br/>and Perplexity"]
-    C --> D["Save each answer<br/>and the sources it used"]
+flowchart TD
+    A["News articles published on one day"] --> B["Turn each headline into a question"]
+    B --> L[("To-do list of questions")]
+
+    L --> W1["Account 1<br/>takes the next question<br/>and asks the chatbot"]
+    L -- "all at the same time" --> W2["Account 2<br/>takes the next question<br/>and asks the chatbot"]
+    L --> W3["Account 3<br/>takes the next question<br/>and asks the chatbot"]
+
+    W1 & W2 & W3 --> OK{"Did it work?"}
+    OK -- "Yes" --> D["Save the answer<br/>and the sources it used"]
+    OK -- "No" --> R{"Already tried<br/>3 times?"}
+    R -- "No: wait 2 minutes,<br/>put it back on the list" --> L
+    R -- "Yes" --> X["Mark as failed<br/>(kept in the results, left empty)"]
     D --> E["Check the sources:<br/>was our article cited?<br/>was a copy on another site cited?"]
-    E --> F["Results table<br/>and summary numbers"]
+    E --> F["Results table and summary numbers"]
+    X --> F
 ```
 
-Several chatbot accounts ask questions at the same time, and a question that fails is asked again automatically. One command, `python run.py`, does all of this.
+**Working in parallel.** All questions go on one to-do list. Each account takes the next question as soon as it is free, so several questions are asked at the same time; more accounts make the run faster. ChatGPT and Perplexity run side by side, each with its own accounts.
+
+**Trying again.** If a question fails, for example because the page did not load, it goes back on the list and is asked again 2 minutes later, possibly by a different account. After 3 failed tries it is marked as failed and kept in the results as an empty row, so no article goes missing. If a whole run stops halfway, starting it again picks up where it left off.
+
+One command, `python run.py`, does all of this.
 
 > **Before you start: set up each account by hand once.** For every Google account you put in `accounts.toml`, sign in to ChatGPT and to Perplexity in a normal browser, create the account if asked, and click through every new-user screen (welcome tours, onboarding questions, feature announcements, cookie banner). The scraper only handles the screens it knows; an unexpected onboarding page can cover the chat box and make every article fail.
 
