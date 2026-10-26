@@ -93,7 +93,7 @@ Measured on 2026-10-25 with the same 10 articles in every run. It is not recorde
 | 100 articles (projected) | ~197 min | ~104 min | ~53 min |
 | New pipeline is faster by | 3.7× | 1.9× | |
 
-The old scrapers no longer run on the current pages, so the "old way" columns use the new pipeline with one account per site, which runs at the same speed. The speed-up comes from using several accounts per site, so more accounts make it faster still. Projections assume a steady pace and leave out first-time logins and rate limits.
+The old scrapers no longer run on the current pages, so the "old way" columns use the new pipeline with one account per site, which runs at the same speed. The speed-up comes from running several accounts and both sites at once, and more accounts make it faster still. Projections assume a steady pace and leave out first-time logins and rate limits.
 
 What the new pipeline adds besides speed:
 
