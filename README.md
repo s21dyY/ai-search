@@ -2,6 +2,19 @@
 
 Measures whether ChatGPT and Perplexity cite Gannett articles when asked about them. For each article, the pipeline asks both chatbots a question built from the headline, then records the answer, the cited sources and the pages the chatbot retrieved.
 
+## How it works
+
+```mermaid
+flowchart LR
+    A["News articles<br/>published on one day"] --> B["Turn each headline<br/>into a question"]
+    B --> C["Ask ChatGPT<br/>and Perplexity"]
+    C --> D["Save each answer<br/>and the sources it used"]
+    D --> E["Check the sources:<br/>was our article cited?<br/>was a copy on another site cited?"]
+    E --> F["Results table<br/>and summary numbers"]
+```
+
+Several chatbot accounts ask questions at the same time, and a question that fails is asked again automatically. One command, `python run.py`, does all of this.
+
 > **Before you start: set up each account by hand once.** For every Google account you put in `accounts.toml`, sign in to ChatGPT and to Perplexity in a normal browser, create the account if asked, and click through every new-user screen (welcome tours, onboarding questions, feature announcements, cookie banner). The scraper only handles the screens it knows; an unexpected onboarding page can cover the chat box and make every article fail.
 
 ## Layout
