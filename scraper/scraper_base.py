@@ -427,8 +427,13 @@ class BaseScraper:
             text = text.replace(ans, " ")
         return text
 
+    def check_answer_is_block(self):
+        """Raise BlockedError if the 'answer' is really a block message. Default: never."""
+        return None
+
     def check_blocked(self):
-        """Raise BlockedError if the page shows a block. Subclasses add their own text."""
+        """Raise BlockedError if the page shows a block. Only called after something
+        failed (no input box, nothing sent, empty answer). Subclasses add their own text."""
         if self.exists(self.CLOUDFLARE_CSS, visible=False):
             raise BlockedError("cloudflare challenge")
         text = self.page_text_for_block_check()
@@ -692,10 +697,13 @@ class BaseScraper:
         result = ScrapeResult(prompt=prompt)
         try:
             self.open_new_chat()
-            self.check_blocked()
             result.request_time = self.ask(prompt)
+            # Success first: wait_for_answer() checks for a block only when no answer
+            # arrives. A real answer means we were not blocked, so the whole page is not
+            # searched for block phrases afterwards: our own question and the sidebar's
+            # chat titles can contain them ("Police investigate unusual activity...").
             self.wait_for_answer()
-            self.check_blocked()          # a login wall can appear after the answer
+            self.check_answer_is_block()  # sites that put the block message in the answer itself
             result.response_text = self.extract_answer()
             result.response_plain = self.answer_text()
             if self.has_sources():

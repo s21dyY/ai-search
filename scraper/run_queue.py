@@ -104,6 +104,7 @@ def main():
     p.add_argument("--max-tries", type=int, default=3)
     p.add_argument("--retry-cooldown", type=float, default=120)
     p.add_argument("--blocked-pause", type=float)
+    p.add_argument("--blocked-cap", type=int, default=3, help="mark an article failed after this many blocks")
     p.add_argument("--stuck-after", type=float, default=600)
     p.add_argument("--stuck-cap", type=int, default=3)
     p.add_argument("--max-restarts", type=int, default=5, help="per worker")
@@ -162,7 +163,7 @@ def main():
     for wid, acct in slots:
         cmd = [sys.executable, "-m", "scraper.worker", "--db", str(dbp), "--model", a.model, "--dates", a.dates,
                "--worker-id", wid, "--max-tries", str(a.max_tries), "--retry-cooldown", str(a.retry_cooldown),
-               "--blocked-pause", str(blocked_pause)]
+               "--blocked-pause", str(blocked_pause), "--blocked-cap", str(a.blocked_cap)]
         if acct:
             cmd += ["--account", acct]
         if a.headful:

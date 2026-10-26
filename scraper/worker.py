@@ -51,6 +51,7 @@ def main():
     p.add_argument("--max-tries", type=int, default=3)
     p.add_argument("--retry-cooldown", type=float, default=120)
     p.add_argument("--blocked-pause", type=float, default=1800)
+    p.add_argument("--blocked-cap", type=int, default=3, help="mark a task failed after this many blocks")
     p.add_argument("--idle-poll", type=float, default=15)
     a = p.parse_args()
 
@@ -118,8 +119,8 @@ def main():
                 shot = scraper.screenshot(shots / "Errors" / f"Task_{tid}_a{task['tries'] + 1}_blocked.png")
                 q.record_attempt(con, task, wid, acct_label, "blocked", started, error_class=e.kind,
                                  error_message=str(e), screenshot_path=shot)
-                q.give_back(con, tid, wid, f"blocked: {e}")
-                log(wid, f"task {tid} blocked ({e}); back to queue, worker pauses {a.blocked_pause:.0f}s")
+                status = q.give_back(con, tid, wid, f"blocked: {e}", cap=a.blocked_cap)
+                log(wid, f"task {tid} blocked ({e}) -> {status}; worker pauses {a.blocked_pause:.0f}s")
                 restart()
                 time.sleep(a.blocked_pause)
 

@@ -162,12 +162,16 @@ class PerplexityScraper(BaseScraper):
                 pass
         return remove_non_bmp("\n".join(parts))
 
-    def check_blocked(self):
-        super().check_blocked()
+    def check_answer_is_block(self):
+        # Logged out, Perplexity "answers" with "Sign up and repeat your request."
         ans = self.answer_text().lower()
         for frag in self.ANSWER_BLOCKED_TEXT:
             if frag in ans:
                 raise BlockedError(f"answer says: {frag!r} (sign-in wall)")
+
+    def check_blocked(self):
+        super().check_blocked()
+        self.check_answer_is_block()
 
     def has_sources(self) -> bool:
         return self.exists(self.SOURCES_BUTTON, visible=True) or bool(self._find_all(f"[{self.CITATION_ATTR}]"))

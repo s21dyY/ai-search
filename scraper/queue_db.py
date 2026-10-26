@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status         TEXT NOT NULL DEFAULT 'pending',
     tries          INTEGER NOT NULL DEFAULT 0,
     stuck_count    INTEGER NOT NULL DEFAULT 0,
+    blocked_count  INTEGER NOT NULL DEFAULT 0,
     next_run_at    REAL NOT NULL DEFAULT 0,
     worker_id      TEXT,
     started_at     REAL,
@@ -93,7 +94,7 @@ ATTEMPT_FIELDS = [
 
 # Columns added after the first version; connect() adds them to older databases.
 MIGRATIONS = {
-    "tasks": {"input_json": "TEXT"},
+    "tasks": {"input_json": "TEXT", "blocked_count": "INTEGER NOT NULL DEFAULT 0"},
     "attempts": {"number_of_sources": "INTEGER", "response_sources": "TEXT", "original_in_sources": "INTEGER"},
 }
 
@@ -177,7 +178,7 @@ def release_worker(con, worker_id: str) -> int:
 
 def reset_failed(con) -> int:
     """Put failed tasks back in the queue with a fresh try count (attempt history is kept)."""
-    return con.execute("UPDATE tasks SET status='pending', tries=0, stuck_count=0, next_run_at=0,"
+    return con.execute("UPDATE tasks SET status='pending', tries=0, stuck_count=0, blocked_count=0, next_run_at=0,"
                        " finished_at=NULL, worker_id=NULL WHERE status='failed'").rowcount
 
 
@@ -249,10 +250,22 @@ def retry_later(con, task_id: int, worker_id: str, cooldown: float, max_tries: i
     return status
 
 
-def give_back(con, task_id: int, worker_id: str, error: str):
-    """Blocked: back to pending now, tries unchanged; another worker may take it."""
-    con.execute("UPDATE tasks SET status='pending', next_run_at=?, worker_id=NULL, last_error=? WHERE id=? AND worker_id=?",
-                (time.time(), error[:500], task_id, worker_id))
+def give_back(con, task_id: int, worker_id: str, error: str, cap: int | None = None) -> str:
+    """
+    Blocked: back to pending at once (tries unchanged) so another worker may take it.
+    With cap, the block is counted; at cap blocks the task is marked failed, so a task
+    that keeps getting blocked cannot keep a run from finishing. cap=None (login needs a
+    person) does not count. Returns the new status.
+    """
+    blocks = con.execute("SELECT blocked_count FROM tasks WHERE id=?", (task_id,)).fetchone()[0]
+    if cap is not None:
+        blocks += 1
+    status = "failed" if (cap is not None and blocks >= cap) else "pending"
+    error = f"{error} (blocked {blocks} of {cap} times)" if cap is not None else error
+    con.execute("UPDATE tasks SET status=?, blocked_count=?, next_run_at=?, worker_id=NULL, last_error=?,"
+                " finished_at=CASE WHEN ?='failed' THEN ? ELSE finished_at END WHERE id=? AND worker_id=?",
+                (status, blocks, time.time(), error[:500], status, time.time(), task_id, worker_id))
+    return status
 
 
 # -- export ---------------------------------------------------------------------
@@ -293,7 +306,7 @@ def export(con, model: str, dates: str, out_dir: str | Path | None = None) -> tu
 
     raw = pd.read_sql_query(
         "SELECT t.id AS task_id, t.article_url AS pageURL, t.headline, t.prompt, t.prompt_source,"
-        " t.status AS task_status, t.tries, t.stuck_count, a.* FROM attempts a JOIN tasks t ON t.id = a.task_id"
+        " t.status AS task_status, t.tries, t.stuck_count, t.blocked_count, a.* FROM attempts a JOIN tasks t ON t.id = a.task_id"
         " ORDER BY t.id, a.attempt_no", con)
     raw = raw.loc[:, ~raw.columns.duplicated()]
     for c in ("started_at", "finished_at"):
