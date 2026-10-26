@@ -94,6 +94,7 @@ class ScrapeResult:
     # Whether search_results could be read: "ok", "none" (captured, no search ran),
     # "capture_failed" (response not readable), "n/a" (target has no such list).
     search_results_status: str = "n/a"
+    extras: dict = field(default_factory=dict)          # target-specific values, e.g. number_of_sources
     screenshot_path: str = ""
 
     def to_row(self) -> dict:
@@ -137,47 +138,70 @@ def domain_of(url: str) -> str:
     return normalize_url(url).split("/")[0]
 
 
-def _title_overlap(a: str, b: str) -> float:
-    """Share of the shorter title's content words that appear in the other title."""
-    tok = lambda s: {w for w in re.findall(r"[a-z0-9']+", (s or "").lower()) if len(w) > 2}
-    ta, tb = tok(a), tok(b)
-    if not ta or not tb:
-        return 0.0
-    return len(ta & tb) / min(len(ta), len(tb))
+def article_url_of(value) -> str:
+    """pageURL from the Content API is a plain URL; the sample dataset stores it as JSON."""
+    s = str(value or "").strip()
+    if s.startswith("{"):
+        try:
+            d = json.loads(s)
+            d = d.get("pageURL", d)
+            return d.get("long") or d.get("short") or ""
+        except Exception:
+            return ""
+    return s
 
 
-def match_sources(sources: list, article_url: str, headline: str) -> tuple[int, int]:
+# Source matching. These rules reproduce the original scrapers on purpose, so new
+# results stay comparable with earlier runs and with analysis/Analysis_Metrics.py.
+# The only difference: entries with an empty URL or empty title are skipped, because
+# in the old UI those fields were never empty, while new sources (an unresolved
+# citation popover) can be, and "" is a substring of every string.
+
+def legacy_chatgpt_flags(sources: list, page_url: str, headline: str) -> tuple[int, int]:
     """
-    Returns (original_found, republisher_found) as 0/1.
-
-    original:    a source URL matches the article URL; or, when the source has no URL
-                 (ChatGPT citation popovers), its domain matches and its title overlaps
-                 the headline strongly.
-    republisher: a source on another domain whose title matches the headline.
+    history/ChatGPT_Scraper.py, applied to one list of sources:
+      original     the source URL (utm_source removed) is contained in the article URL
+      republisher  the source title, cut at " ...", is contained in the article headline,
+                   the source URL is not the article, and it is not en.wikipedia.org
+    Returns (original, republisher) as 0/1.
     """
-    original = 0
-    republisher = 0
-    target = normalize_url(article_url)
-    target_domain = domain_of(article_url)
-    headline = (headline or "").strip()
-    for s in sources:
-        u = normalize_url(s.get("url", ""))
-        dom = s.get("domain") or (domain_of(u) if u else "")
-        title = (s.get("headline") or "").split(" ...")[0].strip()
-        overlap = _title_overlap(title, headline) if title and headline else 0.0
-        if u and target and (u == target or u in target or target in u):
+    page_url, headline = page_url or "", headline or ""
+    original = republisher = 0
+    for c in sources:
+        url = (c.get("url") or "").replace("?utm_source=chatgpt.com", "")
+        if url and url in page_url:
             original = 1
-            continue
-        if not u and dom and target_domain and dom == target_domain and overlap >= 0.5:
-            original = 1
-            continue
-        if "wikipedia.org" in (u or dom):
-            continue
-        # 0.8: syndicated copies (e.g. Yahoo) reuse the headline nearly verbatim;
-        # other outlets' own stories on the same event score ~0.6-0.7 (checked 2026-10-25).
-        if title and headline and (title in headline or overlap >= 0.8) and dom != target_domain:
+        h = (c.get("headline") or "").split(" ...")[0]
+        if h and h in headline and url not in page_url and "en.wikipedia.org" not in url:
             republisher = 1
     return original, republisher
+
+
+def legacy_perplexity_sites(sources: list) -> list[str]:
+    """history/perplexity_scraper.py kept one site per source, 'cut off after tld'."""
+    return [domain_of(s.get("url", "")) or (s.get("site") or "") for s in sources]
+
+
+def source_flags(model: str, result: "ScrapeResult", page_url: str, headline: str) -> dict:
+    """All match columns for one result, using the original rules (see above)."""
+    oc, rc = legacy_chatgpt_flags(result.citations, page_url, headline)
+    osr, rsr = legacy_chatgpt_flags(result.search_results, page_url, headline)
+    flags = {"original_in_citations": oc, "republisher_in_citations": rc,
+             "original_in_search_results": osr, "republisher_in_search_results": rsr}
+    if model == "perplexity":
+        # Old Perplexity columns: its "sources" are the full source list.
+        sites = legacy_perplexity_sites(result.search_results)
+        flags["number_of_sources"] = result.extras.get("number_of_sources", len(result.search_results))
+        flags["response_sources"] = str(sites)          # the old scraper stored a Python list
+        flags["original_in_sources"] = int(any(s and s in (page_url or "") for s in sites))
+    return flags
+
+
+def found_source(flags: dict) -> bool:
+    """When the old scrapers took a 'SourceUsed' screenshot."""
+    keys = ("original_in_citations", "republisher_in_citations", "original_in_search_results",
+            "republisher_in_search_results", "original_in_sources")
+    return any(flags.get(k) for k in keys)
 
 
 # ----------------------------------------------------------------------------
@@ -779,15 +803,14 @@ def run_csv(scraper_cls: type[BaseScraper], dates: str, headless: bool = True,
             time.sleep(random.uniform(*scraper.throttle))
             try:
                 res = scraper.run_one(prompt)
-                oc, rc = match_sources(res.citations, row.get("pageURL", ""), headline)
-                osr, rsr = match_sources(res.search_results, row.get("pageURL", ""), headline)
-                if oc or rc or osr or rsr:
+                flags = source_flags(name, res, article_url_of(row.get("pageURL", "")), headline)
+                if found_source(flags):
                     res.screenshot_path = scraper.screenshot(shots / f"Article_{n}_SourceUsed.png")
-                for k, v in res.to_row().items():
+                for k, v in {**res.to_row(), **flags}.items():
+                    if k not in df.columns:
+                        df[k] = None
                     df.loc[idx, k] = v
-                df.loc[idx, ["original_in_citations", "republisher_in_citations",
-                             "original_in_search_results", "republisher_in_search_results",
-                             "status", "error"]] = [oc, rc, osr, rsr, "done", ""]
+                df.loc[idx, ["status", "error"]] = ["done", ""]
             except ScraperError as e:
                 shot = scraper.screenshot(shots / "Errors" / f"Article_{n}_{e.kind}.png") if scraper.driver else ""
                 df.loc[idx, ["status", "error", "screenshot_path"]] = [e.kind, str(e)[:300], shot]

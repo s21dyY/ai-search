@@ -130,6 +130,11 @@ def main():
     con = q.connect(dbp)
     in_path = Path(a.input) if a.input else ROOT / "data" / f"gannett_API_data_{a.dates}.csv"
     articles = q.load_articles(in_path)
+    import pandas as pd
+    missing = [c for c in q.REQUIRED_INPUT if c not in pd.read_csv(in_path, nrows=0).columns]
+    if missing:
+        print(f"WARNING: input has no {', '.join(missing)} column(s); "
+              f"analysis/Analysis_Metrics.py needs them (the output will have them empty).")
     if a.limit:
         articles = articles[: a.limit]
     have = q.known_urls(con)

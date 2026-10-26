@@ -222,6 +222,8 @@ class PerplexityScraper(BaseScraper):
     def collect_extras(self, result):
         result.search_results_status = getattr(self, "_search_status", "none")
         exp = getattr(self, "_sources_expected", None)
+        # Old column number_of_sources: the count on the "N sources" button, 0 when absent.
+        result.extras["number_of_sources"] = exp if exp is not None else len(result.search_results)
         if exp is not None and len(result.search_results) < exp:
             result.search_results_status = f"partial ({len(result.search_results)}/{exp})"
 

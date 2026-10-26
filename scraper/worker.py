@@ -20,7 +20,7 @@ from pathlib import Path
 
 from . import queue_db as q
 from .scraper_base import (ROOT, BadInputError, BlockedError, LoginChallenge, RetryableError,
-                          ScraperError, match_sources)
+                          ScraperError, found_source, source_flags)
 
 SCRAPERS = {
     "chatgpt": ("chatgpt_scraper", "ChatGPTScraper"),
@@ -88,17 +88,16 @@ def main():
                     raise BadInputError("empty headline or prompt")
                 res = scraper.run_one(task["prompt"])
                 q.heartbeat(con, tid, wid)
-                oc, rc = match_sources(res.citations, task["article_url"], task["headline"])
-                osr, rsr = match_sources(res.search_results, task["article_url"], task["headline"])
-                if oc or rc or osr or rsr:
+                flags = source_flags(a.model, res, task["article_url"], task["headline"])
+                if found_source(flags):
                     res.screenshot_path = scraper.screenshot(shots / f"Task_{tid}_a{task['tries'] + 1}_SourceUsed.png")
-                row = res.to_row()
-                row.update(original_in_citations=oc, republisher_in_citations=rc,
-                           original_in_search_results=osr, republisher_in_search_results=rsr)
+                row = {**res.to_row(), **flags}
+                orig = flags.get("original_in_sources", flags["original_in_citations"] or flags["original_in_search_results"])
+                repub = flags["republisher_in_citations"] or flags["republisher_in_search_results"]
                 q.record_attempt(con, task, wid, acct_label, "done", started, row)
                 q.finish(con, tid, wid, "done")
                 log(wid, f"task {tid} done in {time.time() - started:.0f}s | citations={row['n_citations']} "
-                         f"search={row['n_search_results']} original={oc or osr} republisher={rc or rsr}")
+                         f"search={row['n_search_results']} original={orig} republisher={repub}")
 
             except BadInputError as e:
                 q.record_attempt(con, task, wid, acct_label, "bad_input", started, error_class=e.kind, error_message=str(e))

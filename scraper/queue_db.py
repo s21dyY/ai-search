@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     started_at     REAL,
     heartbeat_at   REAL,
     finished_at    REAL,
-    last_error     TEXT
+    last_error     TEXT,
+    input_json     TEXT
 );
 CREATE INDEX IF NOT EXISTS tasks_claim ON tasks(status, next_run_at, tries, id);
 
@@ -70,7 +71,10 @@ CREATE TABLE IF NOT EXISTS attempts (
     original_in_search_results      INTEGER,
     republisher_in_citations        INTEGER,
     republisher_in_search_results   INTEGER,
-    screenshot_path                 TEXT
+    screenshot_path                 TEXT,
+    number_of_sources               INTEGER,
+    response_sources                TEXT,
+    original_in_sources             INTEGER
 );
 CREATE INDEX IF NOT EXISTS attempts_task ON attempts(task_id);
 """
@@ -81,7 +85,14 @@ ATTEMPT_FIELDS = [
     "n_citations", "n_search_results", "n_search_results_not_cited", "search_results_status",
     "original_in_citations", "original_in_search_results",
     "republisher_in_citations", "republisher_in_search_results", "screenshot_path",
+    "number_of_sources", "response_sources", "original_in_sources",
 ]
+
+# Columns added after the first version; connect() adds them to older databases.
+MIGRATIONS = {
+    "tasks": {"input_json": "TEXT"},
+    "attempts": {"number_of_sources": "INTEGER", "response_sources": "TEXT", "original_in_sources": "INTEGER"},
+}
 
 
 def db_path(model: str, dates: str) -> Path:
@@ -96,6 +107,11 @@ def connect(path: str | Path) -> sqlite3.Connection:
     con.execute("PRAGMA busy_timeout=60000")
     con.execute("PRAGMA synchronous=NORMAL")
     con.executescript(SCHEMA)
+    for table, cols in MIGRATIONS.items():
+        have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        for col, typ in cols.items():
+            if col not in have:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
     return con
 
 
@@ -109,9 +125,9 @@ def enqueue(con, model: str, articles: list[dict]) -> tuple[int, int]:
         for a in articles:
             cur = con.execute(
                 "INSERT OR IGNORE INTO tasks(article_url, headline, keywords, publish_date, section,"
-                " prompt, prompt_source, model) VALUES (?,?,?,?,?,?,?,?)",
+                " prompt, prompt_source, model, input_json) VALUES (?,?,?,?,?,?,?,?,?)",
                 (a["article_url"], a.get("headline"), a.get("keywords"), a.get("publish_date"),
-                 a.get("section"), a.get("prompt"), a.get("prompt_source"), model))
+                 a.get("section"), a.get("prompt"), a.get("prompt_source"), model, a.get("input_json")))
             if cur.rowcount:
                 added += 1
             else:
@@ -238,45 +254,105 @@ def give_back(con, task_id: int, worker_id: str, error: str):
 
 # -- export ---------------------------------------------------------------------
 
+# Output layout of the original scrapers: every input column, then these, in this order.
+# analysis/Analysis_Metrics.py reads this file directly.
+LEGACY_COLUMNS = {
+    "chatgpt": ["prompt", "response_text", "response_citations", "response_search_results",
+                "original_in_citations", "original_in_search_results",
+                "republisher_in_citations", "republisher_in_search_results",
+                "screenshot_path", "request_time"],
+    "perplexity": ["prompt", "response_text", "number_of_sources", "response_sources",
+                   "original_in_sources", "screenshot_path", "request_time"],
+}
+# New columns, after the old ones.
+EXTRA_COLUMNS = {
+    "chatgpt": [],
+    "perplexity": ["response_citations", "response_search_results",
+                   "original_in_citations", "original_in_search_results",
+                   "republisher_in_citations", "republisher_in_search_results"],
+}
+COMMON_EXTRAS = ["status", "last_error", "tries", "account", "attempt_no", "prompt_source", "searched",
+                 "n_citations", "n_search_results", "n_search_results_not_cited", "search_results_status",
+                 "response_plain", "response_images"]
+# Columns Analysis_Metrics.py needs from the input; created empty if the input lacks them.
+REQUIRED_INPUT = ["headline", "pageURL", "fullText", "section"]
+
+
 def export(con, model: str, dates: str, out_dir: str | Path | None = None) -> tuple[Path, Path]:
-    """raw: every attempt joined with its task. clean: one row per done task (last done attempt)."""
+    """
+    clean  gannett_{model}_{dates}.csv: one row per article, failed ones included with
+           empty results, laid out like the original scrapers' output (input columns,
+           then the old result columns, then new columns).
+    raw    gannett_{model}_{dates}_raw.csv: one row per attempt.
+    """
     out_dir = Path(out_dir) if out_dir else ROOT / "data"
+
     raw = pd.read_sql_query(
-        "SELECT t.id AS task_id, t.article_url AS pageURL, t.headline, t.keywords, t.publish_date,"
-        " t.section, t.prompt, t.prompt_source, t.status AS task_status, t.tries, t.stuck_count,"
-        " a.* FROM attempts a JOIN tasks t ON t.id = a.task_id ORDER BY t.id, a.attempt_no", con)
+        "SELECT t.id AS task_id, t.article_url AS pageURL, t.headline, t.prompt, t.prompt_source,"
+        " t.status AS task_status, t.tries, t.stuck_count, a.* FROM attempts a JOIN tasks t ON t.id = a.task_id"
+        " ORDER BY t.id, a.attempt_no", con)
     raw = raw.loc[:, ~raw.columns.duplicated()]
     for c in ("started_at", "finished_at"):
         if c in raw:
             raw[c] = pd.to_datetime(raw[c], unit="s").dt.strftime("%Y-%m-%d %H:%M:%S")
     raw_path = out_dir / f"gannett_{model}_{dates}_raw.csv"
     raw.to_csv(raw_path, index=False)
-    done = raw[raw["outcome"] == "done"].sort_values(["task_id", "attempt_no"]).groupby("task_id").tail(1)
+
+    tasks = pd.read_sql_query("SELECT * FROM tasks ORDER BY id", con)
+    last_done = pd.read_sql_query(
+        "SELECT a.* FROM attempts a JOIN (SELECT task_id, MAX(attempt_no) n FROM attempts"
+        " WHERE outcome='done' GROUP BY task_id) d ON a.task_id = d.task_id AND a.attempt_no = d.n", con)
+    done_by_task = {int(r["task_id"]): r for _, r in last_done.iterrows()}
+
+    legacy, extras = LEGACY_COLUMNS[model], EXTRA_COLUMNS[model] + COMMON_EXTRAS
+    rows, input_cols = [], []
+    for _, t in tasks.iterrows():
+        try:
+            base = json.loads(t["input_json"]) if t.get("input_json") else {}
+        except Exception:
+            base = {}
+        if not base:                          # tasks queued before input_json existed
+            base = {"headline": t["headline"], "keywords": t["keywords"], "publishDate": t["publish_date"],
+                    "section": t["section"]}
+        base["pageURL"] = t["article_url"]    # always the plain URL
+        for c in REQUIRED_INPUT:
+            base.setdefault(c, None)
+        for c in base:
+            if c not in input_cols:
+                input_cols.append(c)
+        a = done_by_task.get(int(t["id"]))
+        out = dict(base)
+        for c in legacy + extras:
+            out[c] = a[c] if (a is not None and c in a.index) else None
+        out["prompt"] = t["prompt"]
+        out["prompt_source"] = t["prompt_source"]
+        out["status"] = t["status"]
+        out["last_error"] = t["last_error"] if t["status"] != "done" else None
+        out["tries"] = t["tries"]
+        rows.append(out)
+
+    cols = input_cols + [c for c in legacy + extras if c not in input_cols]
+    clean = pd.DataFrame(rows, columns=cols)
     clean_path = out_dir / f"gannett_{model}_{dates}.csv"
-    done.to_csv(clean_path, index=False)
+    clean.to_csv(clean_path, index=False)
     return raw_path, clean_path
 
 
 def load_articles(path: str | Path) -> list[dict]:
-    """Input CSV from Gannett_API.py. pageURL may be a plain URL or the API's JSON blob."""
+    """
+    Input CSV from ingest/Gannett_API.py (or tools/make_test_input.py). Every column is
+    kept in input_json so the export can reproduce the full input row, as the original
+    scrapers did (Analysis_Metrics.py needs fullText and section from it).
+    """
+    from .scraper_base import article_url_of
     df = pd.read_csv(path, low_memory=False)
-
-    def url_of(v):
-        s = str(v or "").strip()
-        if s.startswith("{"):
-            try:
-                d = json.loads(s)
-                d = d.get("pageURL", d)
-                return d.get("long") or d.get("short") or ""
-            except Exception:
-                return ""
-        return s
-
     out = []
     for _, r in df.iterrows():
-        url = url_of(r.get("pageURL"))
+        url = article_url_of(r.get("pageURL"))
         if not url:
             continue
+        row = {k: (None if pd.isna(v) else (v.item() if hasattr(v, "item") else v)) for k, v in r.items()}
+        row["pageURL"] = url
         kw = r.get("keywords", "")
         out.append({
             "article_url": url,
@@ -284,5 +360,6 @@ def load_articles(path: str | Path) -> list[dict]:
             "keywords": "" if pd.isna(kw) else str(kw),
             "publish_date": "" if pd.isna(r.get("publishDate")) else str(r.get("publishDate")),
             "section": "" if pd.isna(r.get("section", "")) else str(r.get("section", "")),
+            "input_json": json.dumps(row, ensure_ascii=False, default=str),
         })
     return out

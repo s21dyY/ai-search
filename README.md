@@ -54,7 +54,7 @@ Chrome must be installed. Run every command from the repo root.
 
 Outputs in `data/`:
 
-- `gannett_<model>_<dates>.csv`: one row per article
+- `gannett_<model>_<dates>.csv`: one row per article, failed ones included with empty results. Same layout as the original scrapers' output, so `analysis/Analysis_Metrics.py` reads it directly (set its `input_path` to this file).
 - `gannett_<model>_<dates>_raw.csv`: one row per attempt
 - `logs_<model>_<dates>/`: one log per worker
 - `screenshots_<model>_<dates>/`: pages where the original or a republisher was found, and error pages
@@ -162,11 +162,35 @@ rm -rf data/queue_chatgpt_partest.db data/queue_chatgpt_partest.db-wal data/queu
 
 ## Output columns
 
+The per-article file has, in order: every column of the input file (including `fullText` and `section`), the columns of the original scrapers, then new columns.
+
+Original columns, ChatGPT:
+
 | Column | Meaning |
 |---|---|
+| `prompt`, `response_text`, `request_time`, `screenshot_path` | Question asked, answer (HTML), time asked, screenshot when a match was found |
 | `response_citations` | Sources cited in the answer (JSON list) |
-| `response_search_results` | Pages the chatbot retrieved, cited or not (JSON list) |
-| `n_citations`, `n_search_results`, `n_search_results_not_cited` | Counts of the above |
+| `response_search_results` | Pages ChatGPT retrieved, cited or not (JSON list) |
+| `original_in_citations`, `original_in_search_results` | 1 if a source URL is contained in the article URL |
+| `republisher_in_citations`, `republisher_in_search_results` | 1 if a source title (cut at " ...") is contained in the article headline, on another URL, not Wikipedia |
+
+Original columns, Perplexity:
+
+| Column | Meaning |
+|---|---|
+| `prompt`, `response_text`, `request_time`, `screenshot_path` | As above |
+| `number_of_sources` | The count on Perplexity's "N sources" button |
+| `response_sources` | The site of each source, cut after the domain, e.g. `['usatoday.com', 'people.com']` |
+| `original_in_sources` | 1 if one of those sites appears in the article URL (site-level match, as before) |
+
+The matching rules are the original scrapers' rules, unchanged, so results stay comparable with earlier runs. Perplexity also gets the ChatGPT-style columns (`response_citations`, `original_in_citations`, ...) as new columns.
+
+New columns, both sites:
+
+| Column | Meaning |
+|---|---|
+| `status`, `last_error`, `tries` | Final task status, last error if it failed, retries used |
+| `n_citations`, `n_search_results`, `n_search_results_not_cited` | Counts of cited sources, retrieved pages, and retrieved pages not cited |
 | `search_results_status` | `ok`, `none`, `partial (x/N)` or `capture_failed` |
-| `original_in_citations`, `original_in_search_results` | 1 if the article's own URL appears |
-| `republisher_in_citations`, `republisher_in_search_results` | 1 if another site with a near-identical headline appears (provisional rule) |
+| `response_plain`, `response_images` | Answer as plain text; image cards shown in the answer |
+| `account`, `prompt_source` | Account that ran it; `generated` or `fallback` prompt |
