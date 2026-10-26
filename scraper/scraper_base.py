@@ -215,7 +215,7 @@ class BaseScraper:
     # Timing defaults, PRD section 9. Subclasses override.
     throttle: tuple[float, float] = (20, 30)   # sleep before each ask
     not_sent_timeout = 15                       # s: generation or answer must appear
-    hard_timeout = 240                          # s: whole answer
+    hard_timeout = 120                          # s: whole answer (longest seen so far: 41 s)
     stable_window = 3                           # s: answer text unchanged
     poll = 1.0                                  # s
 

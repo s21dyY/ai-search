@@ -109,7 +109,7 @@ What the new pipeline adds besides speed:
 | Retry failed articles | ChatGPT: no. Perplexity: once | Up to 3 tries, possibly on another account |
 | Run interrupted halfway | Start the whole day again; results overwritten | Resumes; finished articles are not re-run |
 | Browser hangs or crashes | The run stops | Restarted; the article goes back to the queue |
-| Waiting for an answer | A fixed 20–30 s | Until the answer is complete, up to 4 min |
+| Waiting for an answer | A fixed 20–30 s | Until the answer is complete, up to 2 min |
 
 ## Testing the parallel run
 
