@@ -24,11 +24,39 @@ source venv/bin/activate
 pip install -r requirements.txt
 cp accounts.example.toml accounts.toml     # then fill in real accounts
 export OPENAI_API_KEY=sk-...               # used to generate prompts
+export GANNETT_API_KEY=...                 # used to fetch articles for a date
 ```
 
-Chrome must be installed. Run every command from the repo root.
+Chrome must be installed.
 
 ## Run
+
+```
+python run.py
+```
+
+That is all. It asks a few questions (press Enter to accept the default shown in brackets), then:
+
+1. gets the input: an existing file in `data/<name>/`, the Gannett API when the name is a date, or a test sample from `ingest/dataset.csv` for any other name
+2. checks every account in `accounts.toml` is logged in on each site, logging in again automatically when needed; a browser window opens only if Google wants a manual step
+3. runs ChatGPT and Perplexity at the same time, one worker per account, with retries
+4. prints a summary and offers to run `analysis/Analysis_Metrics.py` on the results
+
+It switches to the project's `venv` by itself, so `python3 run.py` works without activating it. Ctrl+C stops a run; running it again with the same name resumes.
+
+Answers can also be given as options, for example:
+
+```
+python run.py --name 2026-10-20 --sites both --yes          # real date, no questions
+python run.py --name mytest --test-articles 6 --yes         # quick test without an API key
+python run.py --name 2026-10-20 --retry-failed              # re-run articles that failed
+```
+
+`python run.py --help` lists every option.
+
+### Running the steps by hand
+
+`run.py` calls these; use them directly for finer control. Run them from the repo root with the venv active.
 
 1. Export articles for a date into `data/<dates>/gannett_API_data_<dates>.csv`:
 
@@ -67,11 +95,13 @@ data/<dates>/
         (same files)
 ```
 
-The per-article file has failed articles too, with empty results, in the same layout as the original scrapers' output, so `analysis/Analysis_Metrics.py` reads it directly (set its `input_path` to that file). To delete a run, delete its folder; to redo one site, delete `data/<dates>/<site>/`.
+The per-article file has failed articles too, with empty results, in the same layout as the original scrapers' output, so `analysis/Analysis_Metrics.py` reads it directly: `python analysis/Analysis_Metrics.py <that file>` (or set `input_path` in the script). To delete a run, delete its folder; to redo one site, delete `data/<dates>/<site>/`.
 
 ## Testing the parallel run
 
 A walkthrough to check the whole pipeline on a handful of articles: logins, parallel workers, retries, crash recovery and resume. It needs no Gannett API key. Plan on about 15 minutes.
+
+Short version: `python run.py --name partest --test-articles 6` covers steps 1 to 3 in one go. The steps below do each part by hand and add the crash and resume tests.
 
 ### 1. Prepare accounts
 

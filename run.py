@@ -1,0 +1,315 @@
+"""
+run.py
+------
+One command for the whole pipeline:
+
+    python run.py
+
+It asks a few questions (press Enter to accept the default in [brackets]) and then:
+  1. gets the input: an existing file, the Gannett API (for a date), or a test sample
+  2. checks every account is logged in on each site, logging in again if needed
+  3. runs ChatGPT and Perplexity at the same time, one worker per account
+  4. prints a summary and, if you want, runs analysis/Analysis_Metrics.py
+
+Everything can also be given as options, for example:
+
+    python run.py --name 2026-10-20 --sites chatgpt,perplexity --limit 50 --yes
+    python run.py --name mytest --test-articles 6 --yes
+
+Run it from anywhere; it switches to the project's venv by itself.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+VENV_PY = ROOT / "venv" / "bin" / "python"
+
+# Re-run inside the project's venv if started with another Python.
+if VENV_PY.exists() and Path(sys.prefix).resolve() != (ROOT / "venv").resolve() and not os.environ.get("RUN_PY_NO_VENV"):
+    os.execv(str(VENV_PY), [str(VENV_PY), str(Path(__file__).resolve()), *sys.argv[1:]])
+
+os.chdir(ROOT)
+sys.path.insert(0, str(ROOT))
+
+from scraper import paths                      # noqa: E402
+from scraper.accounts import load_accounts     # noqa: E402
+
+SITES = ["chatgpt", "perplexity"]
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(_\d{2})?$")
+YES = False                                    # set by --yes
+
+
+# -- small helpers ---------------------------------------------------------------
+
+def say(msg=""):
+    print(msg, flush=True)
+
+
+def ask(question: str, default: str = "") -> str:
+    if YES:
+        say(f"{question} [{default}]: {default}")
+        return default
+    try:
+        ans = input(f"{question} [{default}]: ").strip()
+    except EOFError:
+        ans = ""
+    return ans or default
+
+
+def ask_yes(question: str, default: bool = True) -> bool:
+    ans = ask(question + (" (Y/n)" if default else " (y/N)"), "y" if default else "n").lower()
+    return ans.startswith("y")
+
+
+def py(*args, **kw):
+    return subprocess.run([sys.executable, *args], cwd=ROOT, **kw)
+
+
+# -- steps -----------------------------------------------------------------------
+
+def choose_name(arg: str | None) -> str:
+    if arg:
+        return arg
+    # Most recently used first.
+    runs = [p.name for p in sorted((p for p in paths.DATA.iterdir() if p.is_dir() and p.name != "page-samples"),
+                                   key=lambda p: p.stat().st_mtime, reverse=True)] if paths.DATA.exists() else []
+    if runs:
+        say("Existing runs: " + ", ".join(runs[:8]) + (" ..." if len(runs) > 8 else ""))
+    say("Use a date (YYYY-MM-DD, or YYYY-MM-DD_DD for a range) for real data, or any name for a test.")
+    while True:
+        name = ask("Run name", runs[0] if runs else time.strftime("%Y-%m-%d"))
+        if re.match(r"^[A-Za-z0-9_.-]+$", name):
+            return name
+        say("Use letters, digits, '-', '_' or '.' only.")
+
+
+def ensure_input(name: str, test_articles: int | None) -> bool:
+    inp = paths.input_csv(name)
+    if inp.exists():
+        import pandas as pd
+        n = len(pd.read_csv(inp, usecols=[0]))
+        say(f"Input: {paths.rel(inp)} ({n} articles)")
+        return True
+
+    if test_articles is None and DATE_RE.match(name):
+        if os.environ.get("GANNETT_API_KEY"):
+            if ask_yes(f"No input for {name}. Fetch articles from the Gannett API?"):
+                r = py("-m", "ingest.Gannett_API", name)
+                if r.returncode == 0 and paths.input_csv(name).exists():
+                    return ensure_input(name, None)
+                say("The API fetch failed; see the message above.")
+        else:
+            say(f"No input for {name}, and GANNETT_API_KEY is not set, so articles cannot be fetched.")
+            say("Set it with:  export GANNETT_API_KEY=...   or create a test input instead.")
+
+    n = test_articles if test_articles is not None else None
+    if n is None:
+        if not ask_yes(f"Create a test input for '{name}' from the sample dataset?"):
+            return False
+        n = int(ask("How many articles", "6"))
+    r = py("tools/make_test_input.py", "--name", name, "--n", str(n), capture_output=True, text=True)
+    if r.returncode != 0:
+        say(r.stdout + r.stderr)
+        return False
+    return ensure_input(name, None)
+
+
+def choose_sites(arg: str | None) -> list[str]:
+    raw = arg or ask("Sites to run (chatgpt, perplexity, or both)", "both")
+    raw = raw.replace(" ", "").lower()
+    sites = SITES if raw in ("both", "all", "") else [s for s in raw.split(",") if s in SITES]
+    if not sites:
+        say("No valid site given; running both.")
+        sites = SITES
+    return sites
+
+
+def check_accounts(sites: list[str], guest: bool) -> dict:
+    """Returns {site: [account names]}; sites with no account are dropped (or run as guest)."""
+    plan = {}
+    if not Path("accounts.toml").exists():
+        say("No accounts.toml. Copy accounts.example.toml to accounts.toml and add your accounts.")
+    for site in sites:
+        names = [a.name for a in load_accounts(service=site)]
+        if names:
+            plan[site] = names
+            say(f"{site}: {len(names)} account(s): {', '.join(names)}")
+        elif site == "chatgpt" and (guest or ask_yes("chatgpt: no account. Run one logged-out worker instead?", False)):
+            plan[site] = []
+            say("chatgpt: 1 logged-out worker")
+        else:
+            say(f"{site}: no account; skipping (Perplexity needs a logged-in account)")
+    return plan
+
+
+def check_logins(plan: dict) -> dict:
+    """Open each account headless; log in automatically if the session expired.
+    Falls back to a visible browser when Google needs a person. Drops accounts that fail."""
+    from scraper.chatgpt_scraper import ChatGPTScraper
+    from scraper.perplexity_scraper import PerplexityScraper
+    from scraper.scraper_base import LoginChallenge, ScraperError, login_session
+    classes = {"chatgpt": ChatGPTScraper, "perplexity": PerplexityScraper}
+    ok_plan = {}
+    for site, names in plan.items():
+        ok_plan[site] = []
+        for name in names:
+            s, status = None, ""
+            t0 = time.time()
+            try:
+                s = classes[site](headless=True, profile=name)
+                s.open_new_chat()                      # logs in automatically if needed
+                status = "ok"
+            except LoginChallenge:
+                status = "needs you"
+            except ScraperError as e:
+                status = f"error: {str(e)[:80]}"
+            except Exception as e:
+                status = f"error: {type(e).__name__}"
+            finally:
+                if s is not None:
+                    s.close()
+            if status == "needs you":
+                say(f"  {site}/{name}: Google needs a manual step; opening a browser")
+                login_session(classes[site], name)
+                status = "ok (after manual step)"
+            say(f"  {site}/{name}: {status} ({time.time() - t0:.0f}s)")
+            if status.startswith("ok"):
+                ok_plan[site].append(name)
+        if names and not ok_plan[site]:
+            say(f"  {site}: no account is logged in; skipping this site")
+            del ok_plan[site]
+    return ok_plan
+
+
+def run_sites(name: str, plan: dict, limit: int | None, headful: bool, retry_failed: bool) -> None:
+    procs = []
+    for i, (site, names) in enumerate(plan.items()):
+        cmd = [sys.executable, "-m", "scraper.run_queue", "--model", site, "--dates", name]
+        cmd += ["--accounts", ",".join(names)] if names else ["--guest-workers", "1"]
+        if limit:
+            cmd += ["--limit", str(limit)]
+        if headful:
+            cmd += ["--headful"]
+        if retry_failed:
+            cmd += ["--retry-failed"]
+        if i:
+            time.sleep(3)
+        p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        procs.append((site, p))
+
+    def pump(site, p):
+        for line in p.stdout:
+            say(f"[{site:10}] {line.rstrip()}")
+
+    threads = [threading.Thread(target=pump, args=(s, p), daemon=True) for s, p in procs]
+    for t in threads:
+        t.start()
+    try:
+        for _, p in procs:
+            p.wait()
+    except KeyboardInterrupt:
+        # Ctrl+C reaches the runners too; they stop their workers and save progress.
+        say("\nStopping... (run the same command again to resume)")
+        for _, p in procs:
+            p.wait()
+    for t in threads:
+        t.join(timeout=5)
+
+
+def summarize(name: str, sites: list[str]) -> list[Path]:
+    import pandas as pd
+    say("\n=== Summary ===")
+    files = []
+    for site in sites:
+        f = paths.results_csv(name, site)
+        if not f.exists():
+            say(f"{site}: no results file")
+            continue
+        files.append(f)
+        d = pd.read_csv(f)
+        status = d["status"].value_counts().to_dict() if "status" in d else {}
+        done = d[d.get("status", "") == "done"] if "status" in d else d
+        orig_col = "original_in_sources" if site == "perplexity" else "original_in_citations"
+        orig = int(done[orig_col].fillna(0).astype(int).sum()) if orig_col in done else 0
+        say(f"{site:10} {len(d)} articles | {status} | original cited in {orig}/{len(done)} | {paths.rel(f)}")
+    return files
+
+
+def run_analysis(files: list[Path]) -> None:
+    for f in files:
+        say(f"\nAnalysis of {paths.rel(f)}:")
+        r = subprocess.run([sys.executable, str(ROOT / "analysis" / "Analysis_Metrics.py"), str(f)],
+                           cwd=f.parent, capture_output=True, text=True)
+        out = sorted(f.parent.glob("analysis_summary_*.csv"))
+        if r.returncode == 0 and out:
+            say(f"  saved {paths.rel(out[-1])}")
+        else:
+            say("  failed: " + (r.stderr.strip().splitlines() or ["unknown error"])[-1])
+
+
+# -- main --------------------------------------------------------------------------
+
+def main():
+    global YES
+    p = argparse.ArgumentParser(description="Run the whole pipeline. With no options it asks what to do.")
+    p.add_argument("--name", help="run name: a date (YYYY-MM-DD or YYYY-MM-DD_DD) or a test name")
+    p.add_argument("--sites", help="chatgpt, perplexity, or both (comma-separated)")
+    p.add_argument("--limit", type=int, help="only the first N articles")
+    p.add_argument("--test-articles", type=int, help="create a test input with N sample articles if none exists")
+    p.add_argument("--guest", action="store_true", help="ChatGPT without an account: one logged-out worker")
+    p.add_argument("--skip-login-check", action="store_true")
+    p.add_argument("--retry-failed", action="store_true", help="re-run articles that failed last time")
+    p.add_argument("--headful", action="store_true", help="show the browser windows")
+    p.add_argument("--no-analysis", action="store_true")
+    p.add_argument("--yes", action="store_true", help="accept every default; no questions")
+    a = p.parse_args()
+    YES = a.yes
+
+    say("=== LLM evidence gathering ===\n")
+    name = choose_name(a.name)
+    if not ensure_input(name, a.test_articles):
+        say("No input; stopping.")
+        return 1
+
+    sites = choose_sites(a.sites)
+    limit = a.limit
+    if limit is None and not YES:
+        lim = ask("Only the first N articles? (Enter for all)", "all")
+        limit = int(lim) if lim.isdigit() else None
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        say("Note: OPENAI_API_KEY is not set; prompts use the fallback 'What can you tell me about: <headline>'.")
+
+    plan = check_accounts(sites, a.guest)
+    if not plan:
+        say("Nothing to run.")
+        return 1
+    if not a.skip_login_check:
+        say("\nChecking logins...")
+        plan = check_logins(plan)
+        if not plan:
+            say("No site has a working login; stopping.")
+            return 1
+
+    say(f"\nRunning {', '.join(plan)} for '{name}'" + (f", first {limit} articles" if limit else "") + ".")
+    say("Progress prints every 20 seconds. Ctrl+C stops; running the same command again resumes.\n")
+    run_sites(name, plan, limit, a.headful, a.retry_failed)
+
+    files = summarize(name, list(plan))
+    if files and not a.no_analysis and ask_yes("\nRun analysis/Analysis_Metrics.py on the results?"):
+        run_analysis(files)
+    say(f"\nAll files for this run: {paths.rel(paths.run_dir(name))}/")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
