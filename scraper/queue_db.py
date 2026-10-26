@@ -2,7 +2,8 @@
 queue_db.py
 -----------
 SQLite task queue shared by the orchestrator (scraper/run_queue.py) and the workers
-(scraper/worker.py). One database per model and date: data/queue_{model}_{dates}.db.
+(scraper/worker.py). One database per run and site: data/<dates>/<model>/queue.db
+(see scraper/paths.py).
 
 Design: local-docs/prd-parallel-runs-and-retries.md sections 5 and 6.
 
@@ -18,6 +19,8 @@ import time
 from pathlib import Path
 
 import pandas as pd
+
+from . import paths
 
 ROOT = Path(__file__).resolve().parents[1]          # repo root
 
@@ -96,7 +99,7 @@ MIGRATIONS = {
 
 
 def db_path(model: str, dates: str) -> Path:
-    return ROOT / "data" / f"queue_{model}_{dates}.db"
+    return paths.queue_db(dates, model)
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -285,7 +288,8 @@ def export(con, model: str, dates: str, out_dir: str | Path | None = None) -> tu
            then the old result columns, then new columns).
     raw    gannett_{model}_{dates}_raw.csv: one row per attempt.
     """
-    out_dir = Path(out_dir) if out_dir else ROOT / "data"
+    out_dir = Path(out_dir) if out_dir else paths.site_dir(dates, model)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     raw = pd.read_sql_query(
         "SELECT t.id AS task_id, t.article_url AS pageURL, t.headline, t.prompt, t.prompt_source,"

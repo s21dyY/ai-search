@@ -4,7 +4,8 @@ scraper/worker.py
 One queue worker: one browser, one account (or guest), pulls tasks until the queue
 is empty. Started by scraper/run_queue.py; can also be run by hand for debugging:
 
-    python -m scraper.worker --db data/queue_chatgpt_2026-10-20.db --model chatgpt --worker-id w1 --account acct1
+    python -m scraper.worker --db data/2026-10-20/chatgpt/queue.db --model chatgpt --dates 2026-10-20 \
+        --worker-id w1 --account acct1
 
 Loop (PRD 5.2): claim -> throttle -> run_one -> classify -> record -> repeat.
 """
@@ -18,6 +19,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import paths
 from . import queue_db as q
 from .scraper_base import (ROOT, BadInputError, BlockedError, LoginChallenge, RetryableError,
                           ScraperError, found_source, source_flags)
@@ -55,7 +57,7 @@ def main():
     wid, acct = a.worker_id, a.account
     acct_label = acct or "guest"
     con = q.connect(a.db)
-    shots = ROOT / "data" / f"screenshots_{a.model}_{a.dates}"
+    shots = paths.screenshots_dir(a.dates, a.model)
     (shots / "Errors").mkdir(parents=True, exist_ok=True)
 
     scraper = None

@@ -41,7 +41,7 @@ from selenium.webdriver.common.keys import Keys
 from seleniumbase import Driver
 
 ROOT = Path(__file__).resolve().parents[1]          # repo root
-DATA_DIR = ROOT / "data"
+DATA_DIR = ROOT / "data"                            # run layout: scraper/paths.py
 
 # One Chrome profile per account, e.g. profiles/mj/. Created by `--login --profile mj`.
 # The profile holds the session cookies, so it IS the credential: gitignored, never shared.
@@ -399,7 +399,8 @@ class BaseScraper:
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             self.driver.save_screenshot(str(path))
-            return str(path)
+            from .paths import rel
+            return rel(path)                     # stored in CSVs; relative to the repo root
         except WebDriverException:
             return ""
 
@@ -762,16 +763,17 @@ def login_session(scraper_cls: type[BaseScraper], profile: str):
 def run_csv(scraper_cls: type[BaseScraper], dates: str, headless: bool = True,
             limit: int | None = None, blocked_pause: float = 600, profile: str | None = None):
     """
-    Read data/gannett_API_data_{dates}.csv, ask one prompt per article, write
-    data/gannett_{name}_{dates}.csv after every article. No retries here; the
+    Read data/<dates>/gannett_API_data_<dates>.csv, ask one prompt per article, write
+    data/<dates>/<name>/gannett_<name>_<dates>.csv after every article. No retries here; the
     queue runner handles those. A blocked page restarts the browser and pauses.
     """
     from ingest.Prompt_Generator import PromptGenerator  # needs OPENAI_API_KEY; import lazily
 
     name = scraper_cls.name
-    in_path = DATA_DIR / f"gannett_API_data_{dates}.csv"
-    out_path = DATA_DIR / f"gannett_{name}_{dates}.csv"
-    shots = DATA_DIR / f"screenshots_{name}_{dates}"
+    from . import paths
+    in_path = paths.input_csv(dates)
+    out_path = paths.results_csv(dates, name)
+    shots = paths.screenshots_dir(dates, name)
     (shots / "Errors").mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv(in_path)

@@ -10,10 +10,10 @@ Restarting it resumes from the queue: finished tasks are not re-run.
     python -m scraper.run_queue --model chatgpt --dates 2026-10-20 --guest-workers 2   # no accounts
 
 Workers = the accounts in accounts.toml that list this model (or --accounts a,b).
-Input:   data/gannett_API_data_{dates}.csv  (or --input PATH)
-Output:  data/queue_{model}_{dates}.db, data/gannett_{model}_{dates}_raw.csv,
-         data/gannett_{model}_{dates}.csv, data/screenshots_{model}_{dates}/
-Logs:    data/logs_{model}_{dates}/<worker>.log
+Input:   data/<dates>/gannett_API_data_<dates>.csv  (or --input PATH)
+Output:  data/<dates>/<model>/: gannett_<model>_<dates>.csv (for the analysis),
+         gannett_<model>_<dates>_raw.csv, queue.db, logs/, screenshots/
+         Layout: scraper/paths.py
 
 Design: local-docs/prd-parallel-runs-and-retries.md.
 """
@@ -28,6 +28,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import paths
 from . import queue_db as q
 from .scraper_base import ROOT
 
@@ -93,7 +94,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True, choices=["chatgpt", "perplexity"])
     p.add_argument("--dates", required=True, help="YYYY-MM-DD[_DD]; also names the output files")
-    p.add_argument("--input", help="input CSV (default data/gannett_API_data_{dates}.csv)")
+    p.add_argument("--input", help="input CSV (default data/<dates>/gannett_API_data_<dates>.csv)")
     p.add_argument("--limit", type=int, help="only the first N articles")
     p.add_argument("--accounts", help="comma-separated account names (default: all for this model)")
     p.add_argument("--guest-workers", type=int, default=0, help="extra logged-out workers (ChatGPT only)")
@@ -128,7 +129,9 @@ def main():
     # --- queue ---
     dbp = q.db_path(a.model, a.dates)
     con = q.connect(dbp)
-    in_path = Path(a.input) if a.input else ROOT / "data" / f"gannett_API_data_{a.dates}.csv"
+    in_path = Path(a.input) if a.input else paths.input_csv(a.dates)
+    if not in_path.exists():
+        p.error(f"input not found: {paths.rel(in_path)} (run ingest/Gannett_API.py or tools/make_test_input.py)")
     articles = q.load_articles(in_path)
     import pandas as pd
     missing = [c for c in q.REQUIRED_INPUT if c not in pd.read_csv(in_path, nrows=0).columns]
@@ -145,14 +148,14 @@ def main():
     added, existing = q.enqueue(con, a.model, new)
     if a.retry_failed:
         print(f"Re-queued {q.reset_failed(con)} failed task(s).")
-    print(f"Queue {dbp}: {added} added, {len(articles) - added} already queued | {q.counts(con)}")
+    print(f"Queue {paths.rel(dbp)}: {added} added, {len(articles) - added} already queued | {q.counts(con)}")
     if q.open_work(con) == 0:
         print("Nothing to do.")
-        print("Exported:", *q.export(con, a.model, a.dates))
+        print("Exported:", *(paths.rel(x) for x in q.export(con, a.model, a.dates)))
         return 0
 
     # --- start workers, staggered ---
-    logs = ROOT / "data" / f"logs_{a.model}_{a.dates}"
+    logs = paths.logs_dir(a.dates, a.model)
     logs.mkdir(parents=True, exist_ok=True)
     blocked_pause = a.blocked_pause if a.blocked_pause is not None else DEFAULTS["blocked_pause"][a.model]
     workers = []
@@ -169,7 +172,7 @@ def main():
         if i:
             time.sleep(a.stagger)
         w.start()
-        print(f"started {w.wid} (pid {w.proc.pid}) -> {w.log_path}")
+        print(f"started {w.wid} (pid {w.proc.pid}) -> {paths.rel(w.log_path)}")
 
     # --- supervise ---
     t0 = time.time()
@@ -220,7 +223,7 @@ def main():
     c = q.counts(con)
     n_att = con.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
     print(f"\nDone in {time.time() - t0:.0f}s | {c} | attempts={n_att}")
-    print(f"raw:   {raw_path}\nclean: {clean_path}")
+    print(f"raw:   {paths.rel(raw_path)}\nclean: {paths.rel(clean_path)}")
     return 0
 
 

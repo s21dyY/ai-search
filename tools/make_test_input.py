@@ -4,7 +4,7 @@ without a Gannett API key.
 
     python tools/make_test_input.py --name partest --n 6
 
-writes data/gannett_API_data_partest.csv with 6 random recent articles from
+writes data/partest/gannett_API_data_partest.csv with 6 random recent articles from
 ingest/dataset.csv. Then run, for example:
 
     python -m scraper.run_queue --model chatgpt --dates partest
@@ -45,7 +45,7 @@ def main():
     df["pageURL"] = df["pageURL"].map(article_url_of)
     df = df[["headline", "fullText", "type", "publishDate", "pageURL", "section", "subsection", "keywords"]]
     pool = df.head(max(200, a.n))
-    out = ROOT / "data" / f"gannett_API_data_{a.name}.csv"
+    out = ROOT / "data" / a.name / f"gannett_API_data_{a.name}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     pool.sample(min(a.n, len(pool)), random_state=a.seed).to_csv(out, index=False)
     print(f"wrote {out.relative_to(ROOT)} ({min(a.n, len(pool))} articles)")

@@ -30,7 +30,7 @@ Chrome must be installed. Run every command from the repo root.
 
 ## Run
 
-1. Export articles for a date into `data/gannett_API_data_<dates>.csv`:
+1. Export articles for a date into `data/<dates>/gannett_API_data_<dates>.csv`:
 
    ```
    python -m ingest.Gannett_API 2026-10-20
@@ -52,12 +52,22 @@ Chrome must be installed. Run every command from the repo root.
 
    Useful options: `--limit N`, `--retry-failed`, `--guest-workers N` (ChatGPT only, no account).
 
-Outputs in `data/`:
+Each run gets its own folder, named by `--dates`, with one subfolder per site:
 
-- `gannett_<model>_<dates>.csv`: one row per article, failed ones included with empty results. Same layout as the original scrapers' output, so `analysis/Analysis_Metrics.py` reads it directly (set its `input_path` to this file).
-- `gannett_<model>_<dates>_raw.csv`: one row per attempt
-- `logs_<model>_<dates>/`: one log per worker
-- `screenshots_<model>_<dates>/`: pages where the original or a republisher was found, and error pages
+```
+data/<dates>/
+    gannett_API_data_<dates>.csv           input
+    chatgpt/
+        gannett_chatgpt_<dates>.csv        one row per article -> analysis/Analysis_Metrics.py
+        gannett_chatgpt_<dates>_raw.csv    one row per attempt, failed ones included
+        queue.db                           needed to resume, retry or re-export; keep it
+        logs/                              one log per worker
+        screenshots/                       matches found; errors in screenshots/Errors/
+    perplexity/
+        (same files)
+```
+
+The per-article file has failed articles too, with empty results, in the same layout as the original scrapers' output, so `analysis/Analysis_Metrics.py` reads it directly (set its `input_path` to that file). To delete a run, delete its folder; to redo one site, delete `data/<dates>/<site>/`.
 
 ## Testing the parallel run
 
@@ -88,7 +98,7 @@ Each account logs in once per site and the session is saved under `profiles/<acc
 python tools/make_test_input.py --name partest --n 6
 ```
 
-This writes `data/gannett_API_data_partest.csv` with 6 articles from `ingest/dataset.csv`. Use `--seed` to get different articles.
+This writes `data/partest/gannett_API_data_partest.csv` with 6 articles from `ingest/dataset.csv`. Use `--seed` to get different articles.
 
 ### 3. Run in parallel
 
@@ -99,14 +109,14 @@ python -m scraper.run_queue --model chatgpt --dates partest
 One worker starts per account, 15 seconds apart. Worker names are `w<number>-<account>`. Progress prints every 20 seconds (example with two accounts):
 
 ```
-started w1-acct1 (pid 19840) -> data/logs_chatgpt_partest/w1-acct1.log
-started w2-acct2 (pid 19902) -> data/logs_chatgpt_partest/w2-acct2.log
+started w1-acct1 (pid 19840) -> data/partest/chatgpt/logs/w1-acct1.log
+started w2-acct2 (pid 19902) -> data/partest/chatgpt/logs/w2-acct2.log
 18:01:42 {'pending': 4, 'running': 2, 'done': 0, 'failed': 0} | 20s
 ...
 Done in 160s | {'pending': 0, 'running': 0, 'done': 6, 'failed': 0} | attempts=6
 ```
 
-Expected: every task ends as `done`, about 20 to 30 seconds per article plus a 20 to 30 second pause between articles per worker. Each worker's log in `data/logs_chatgpt_partest/` shows which articles it took and how many citations and search results it found.
+Expected: every task ends as `done`, about 20 to 30 seconds per article plus a 20 to 30 second pause between articles per worker. Each worker's log in `data/partest/chatgpt/logs/` shows which articles it took and how many citations and search results it found.
 
 Without `OPENAI_API_KEY` the run prints "PromptGenerator unavailable" and uses the template "What can you tell me about: <headline>". That is fine for testing.
 
@@ -140,14 +150,12 @@ python -m scraper.run_queue --model chatgpt --dates killtest
 
 Expected: `Nothing to do.` Finished articles are never re-run. If a run ends with failed tasks, `--retry-failed` puts them back in the queue.
 
-Failed attempts retry automatically: up to 3 tries per article, 2 minutes apart, possibly on another worker. Every attempt, failed or not, is a row in `data/gannett_chatgpt_<dates>_raw.csv`; error screenshots go to `data/screenshots_chatgpt_<dates>/Errors/`.
+Failed attempts retry automatically: up to 3 tries per article, 2 minutes apart, possibly on another worker. Every attempt, failed or not, is a row in `data/<dates>/chatgpt/gannett_chatgpt_<dates>_raw.csv`; error screenshots go to `data/<dates>/chatgpt/screenshots/Errors/`.
 
 ### 6. Start a test over
 
 ```
-rm -rf data/queue_chatgpt_partest.db data/queue_chatgpt_partest.db-wal data/queue_chatgpt_partest.db-shm \
-       data/logs_chatgpt_partest data/screenshots_chatgpt_partest \
-       data/gannett_chatgpt_partest.csv data/gannett_chatgpt_partest_raw.csv
+rm -rf data/partest/chatgpt        # keeps the input; delete data/partest to remove the whole run
 ```
 
 ### Troubleshooting
@@ -158,7 +166,7 @@ rm -rf data/queue_chatgpt_partest.db data/queue_chatgpt_partest.db-wal data/queu
 | `login_challenge` in a worker log, worker stops | Google wants a manual step. Run `python -m scraper.<site>_scraper --login --profile <account>`, finish it in the browser, then re-run the queue command. |
 | `Google rejected the email or password` | Check that account in `accounts.toml`. |
 | `web search item disabled; reloading` in a ChatGPT log | Normal; ChatGPT sometimes loads the menu late. The worker reloads and continues. |
-| Tasks keep failing with the same error | Look at the screenshots in `data/screenshots_<site>_<dates>/Errors/`; the site layout may have changed. `python tools/capture_page_samples.py <site> --profile <account>` saves the current page for debugging. |
+| Tasks keep failing with the same error | Look at the screenshots in `data/<dates>/<site>/screenshots/Errors/`; the site layout may have changed. `python tools/capture_page_samples.py <site> --profile <account>` saves the current page for debugging. |
 
 ## Output columns
 
