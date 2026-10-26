@@ -84,21 +84,20 @@ The per-article file includes failed articles with empty results, in the same la
 
 ## Performance
 
-Measured on 2026-10-25 with the same 10 articles for every run, both sites running at the same time.
+Measured on 2026-10-25 with the same 10 articles in both runs.
 
-| Site | Version | Accounts | Time per article | 10 articles, measured | 100 articles, projected | vs. old scraper |
-|---|---|---|---|---|---|---|
-| ChatGPT | Old scraper | 1 | ~60 s (estimated) | n/a | ~100 min | 1× |
-| ChatGPT | New pipeline | 1 | 56 s | 9.4 min | ~94 min | 1.1× |
-| ChatGPT | New pipeline | 2 | 26 s | 4.3 min | ~43 min | 2.3× |
-| Perplexity | Old scraper | 1 | ~65 s (estimated) | n/a | ~108 min | 1× |
-| Perplexity | New pipeline | 1 | 62 s | 10.4 min | ~104 min | 1.0× |
-| Perplexity | New pipeline | 2 | 32 s | 5.3 min | ~53 min | 2.1× |
+| | Separately | In parallel |
+|---|---|---|
+| How | 1 account; ChatGPT first, then Perplexity | 2 accounts per site; both sites at the same time |
+| 10 articles (measured) | 19.7 min | 5.3 min |
+| 100 articles (projected) | ~197 min | ~53 min |
 
-- Time per article is the total run time divided by the number of articles. It includes browser start-up, the pause each account takes between articles to avoid rate limits, and any retries; one ChatGPT article in the 1-account run needed a second try.
-- With one account the new pipeline is about as fast as the old scraper, because both keep the same pause between articles. The speed-up comes from running several accounts at once.
-- The old scrapers no longer work with the current ChatGPT and Perplexity pages, so they could not be timed. Their figures are the sum of the fixed waits in their code (45–65 s per article for ChatGPT, 57–70 s for Perplexity) plus page loads.
-- Projections assume the time per article stays the same. They exclude the first-time login and any rate limits that may appear over a full day.
+Running in parallel is about 3.7 times faster.
+
+- "Separately" is how the old scrapers ran: one browser, one site at a time. It adds up each site's measured time with one account (ChatGPT 9.4 min, Perplexity 10.4 min). With one account the new pipeline runs at the old scrapers' speed, so this column also stands for the old way.
+- "In parallel" is what `python run.py` does with two accounts in `accounts.toml`. More accounts make it faster still.
+- Times include browser start-up, the pause each account takes between articles to avoid rate limits, and retries.
+- Projections assume the time per article stays the same. They exclude the first-time login and any rate limits over a full day.
 - The test used sample articles and the fallback prompt ("What can you tell me about: <headline>").
 
 What the new pipeline adds besides speed:
