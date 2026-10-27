@@ -32,7 +32,7 @@ from . import paths
 from . import queue_db as q
 from .scraper_base import ROOT
 
-def build_prompts(articles: list[dict], use_generator: bool = True) -> None:
+def build_prompts(articles: list[dict], use_generator: bool = True, log=print) -> None:
     """Generate one prompt per article, once, at enqueue time (PRD 5.1)."""
     gen = None
     if use_generator:
@@ -40,7 +40,7 @@ def build_prompts(articles: list[dict], use_generator: bool = True) -> None:
             from ingest.Prompt_Generator import PromptGenerator
             gen = PromptGenerator()
         except Exception as e:
-            print(f"PromptGenerator unavailable ({str(e)[:80]}); using the fallback template.")
+            log(f"PromptGenerator unavailable ({str(e)[:80]}); using the fallback template.")
     for a in articles:
         if not a["headline"].strip():
             a["prompt"], a["prompt_source"] = "", "none"
@@ -113,7 +113,13 @@ def main():
     p.add_argument("--stuck-cap", type=int, default=3)
     p.add_argument("--max-restarts", type=int, default=5, help="per worker")
     p.add_argument("--retry-failed", action="store_true", help="put failed tasks back in the queue first")
+    p.add_argument("--quiet", action="store_true",
+                   help="print only problems; run.py prints the overall progress itself")
     a = p.parse_args()
+
+    def info(msg=""):                        # routine output, left out with --quiet
+        if not a.quiet:
+            print(msg)
 
     # --- workers ---
     from .accounts import load_accounts
@@ -148,15 +154,15 @@ def main():
     have = q.known_urls(con)
     new = [x for x in articles if x["article_url"] not in have]
     if new:
-        print(f"Generating prompts for {len(new)} new articles...")
-        build_prompts(new, use_generator=not a.no_generator)
+        info(f"Generating prompts for {len(new)} new articles...")
+        build_prompts(new, use_generator=not a.no_generator, log=info)
     added, existing = q.enqueue(con, a.model, new)
     if a.retry_failed:
         print(f"Re-queued {q.reset_failed(con)} failed task(s).")
-    print(f"Queue {paths.rel(dbp)}: {added} added, {len(articles) - added} already queued | {q.counts(con)}")
+    info(f"Queue {paths.rel(dbp)}: {added} added, {len(articles) - added} already queued | {q.counts(con)}")
     if q.open_work(con) == 0:
-        print("Nothing to do.")
-        print("Exported:", *(paths.rel(x) for x in q.export(con, a.model, a.dates)))
+        info("Nothing to do.")
+        info("Exported: " + " ".join(paths.rel(x) for x in q.export(con, a.model, a.dates)))
         return 0 if all_done(q.counts(con)) else 1
 
     # --- start workers, staggered ---
@@ -176,7 +182,7 @@ def main():
         if i:
             time.sleep(a.stagger)
         w.start()
-        print(f"started {w.wid} (pid {w.proc.pid}) -> {paths.rel(w.log_path)}")
+        info(f"started {w.wid} (pid {w.proc.pid}) -> {paths.rel(w.log_path)}")
 
     # --- supervise ---
     t0 = time.time()
@@ -199,7 +205,7 @@ def main():
                 released = q.release_worker(con, w.wid)
                 if code == 0:
                     w.stopped = True
-                    print(f"{w.wid} finished")
+                    info(f"{w.wid} finished")
                 elif code == 3:
                     w.stopped = True
                     print(f"{w.wid} stopped: login for '{w.account}' needs a person "
@@ -213,7 +219,7 @@ def main():
                     w.start()
             c = q.counts(con)
             if c != last:
-                print(f"{time.strftime('%H:%M:%S')} {c} | {time.time() - t0:.0f}s")
+                info(f"{time.strftime('%H:%M:%S')} {c} | {time.time() - t0:.0f}s")
                 last = c
             if q.open_work(con) == 0:
                 break
@@ -230,8 +236,8 @@ def main():
     raw_path, clean_path = q.export(con, a.model, a.dates)
     c = q.counts(con)
     n_att = con.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
-    print(f"\nDone in {time.time() - t0:.0f}s | {c} | attempts={n_att}")
-    print(f"raw:   {paths.rel(raw_path)}\nclean: {paths.rel(clean_path)}")
+    info(f"\nDone in {time.time() - t0:.0f}s | {c} | attempts={n_att}")
+    info(f"raw:   {paths.rel(raw_path)}\nclean: {paths.rel(clean_path)}")
     return 0 if all_done(c) else 1
 
 

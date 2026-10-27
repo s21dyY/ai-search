@@ -130,7 +130,7 @@ The first run logs each account in on each site, about 40 to 60 seconds each, an
 python run.py --name partest --test-articles 6
 ```
 
-This creates `data/partest/` with 6 articles from the sample dataset, checks the logins, and runs both sites. One worker starts per account, 15 seconds apart. Worker names are `w<number>-<account>`. Progress prints every 20 seconds, prefixed by the site (example with two accounts):
+This creates `data/partest/` with 6 articles from the sample dataset, checks the logins, and runs both sites. One worker starts per account, 15 seconds apart, named `w<number>-<account>` in the order of `accounts.toml`. Every minute one line shows the progress of both sites together; problems, such as a worker restart, print as they happen, prefixed by the site (example with two accounts):
 
 ```
 Checking logins...
@@ -139,10 +139,11 @@ Checking logins...
   perplexity/acct1: ok (5s)
   perplexity/acct2: ok (6s)
 
-[chatgpt   ] started w1-acct1 (pid 52736) -> data/partest/chatgpt/logs/w1-acct1.log
-[chatgpt   ] started w2-acct2 (pid 52776) -> data/partest/chatgpt/logs/w2-acct2.log
-[perplexity] started w1-acct1 (pid 53672) -> data/partest/perplexity/logs/w1-acct1.log
-[chatgpt   ] 21:42:01 {'pending': 4, 'running': 2, 'done': 0, 'failed': 0} | 20s
+Running chatgpt, perplexity for 'partest'.
+Progress prints every minute. Ctrl+C stops; running the same command again resumes.
+
+21:43 | 3 of 12 done, 0 failed, 4 running, 5 waiting | 1 min
+21:44 | 8 of 12 done, 0 failed, 4 running, 0 waiting | 2 min
 ...
 === Summary ===
 chatgpt    6 articles | {'done': 6} | original cited in 0/6 | data/partest/chatgpt/gannett_chatgpt_partest.csv
@@ -159,12 +160,12 @@ Start a new test, and while a worker is busy, kill it from a second terminal:
 
 ```
 python run.py --name killtest --test-articles 4 --sites chatgpt
-# second terminal, once the progress shows 'running' above 0
-# (use a worker name from the "started ..." lines, e.g. w2-acct2):
+# second terminal, once the progress shows articles running
+# (worker names are w<number>-<account>, e.g. w2-acct2; see data/killtest/chatgpt/logs/):
 pkill -9 -f "worker-id w2-acct2"
 ```
 
-Expected within about 20 seconds: `w2-acct2 exited with -9; released 1 task(s); restart 1`. This works with a single account too; kill `w1-<account>`. The restarted worker re-runs the interrupted article and the run still ends with every article `done`.
+Expected within about 20 seconds: `[chatgpt   ] w2-acct2 exited with -9; released 1 task(s); restart 1`. This works with a single account too; kill `w1-<account>`. The restarted worker re-runs the interrupted article and the run still ends with every article `done`.
 
 ### 4. Test resume and retry
 

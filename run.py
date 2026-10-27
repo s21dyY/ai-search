@@ -44,6 +44,7 @@ from scraper import paths                      # noqa: E402
 from scraper.accounts import load_accounts     # noqa: E402
 
 SITES = ["chatgpt", "perplexity"]
+PROGRESS_EVERY = 60                              # seconds between progress lines
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(_\d{2})?$")
 YES = False                                    # set by --yes
 
@@ -234,7 +235,7 @@ def run_sites(name: str, plan: dict, limit: int | None, headful: bool, retry_fai
     """Runs every site at once. Returns {site: exit code}; 0 means every article is done."""
     procs = []
     for i, (site, names) in enumerate(plan.items()):
-        cmd = [sys.executable, "-m", "scraper.run_queue", "--model", site, "--dates", name]
+        cmd = [sys.executable, "-m", "scraper.run_queue", "--model", site, "--dates", name, "--quiet"]
         cmd += ["--accounts", ",".join(names)] if names else ["--guest-workers", "1"]
         if limit:
             cmd += ["--limit", str(limit)]
@@ -251,7 +252,27 @@ def run_sites(name: str, plan: dict, limit: int | None, headful: bool, retry_fai
         for line in p.stdout:
             say(f"[{site:10}] {line.rstrip()}")
 
+    finished = threading.Event()
+
+    def progress():                          # one line for all sites together, every minute
+        from scraper import queue_db as q
+        t0 = time.time()
+        while not finished.wait(PROGRESS_EVERY):
+            total = {"pending": 0, "running": 0, "done": 0, "failed": 0}
+            for site in plan:
+                db = q.db_path(site, name)
+                if db.exists():
+                    con = q.connect(db)
+                    for k, v in q.counts(con).items():
+                        total[k] += v
+                    con.close()
+            n = sum(total.values())
+            if n:
+                say(f"{time.strftime('%H:%M')} | {total['done']} of {n} done, {total['failed']} failed, "
+                    f"{total['running']} running, {total['pending']} waiting | {(time.time() - t0) / 60:.0f} min")
+
     threads = [threading.Thread(target=pump, args=(s, p), daemon=True) for s, p in procs]
+    threads.append(threading.Thread(target=progress, daemon=True))
     for t in threads:
         t.start()
     try:
@@ -262,6 +283,7 @@ def run_sites(name: str, plan: dict, limit: int | None, headful: bool, retry_fai
         say("\nStopping... (run the same command again to resume)")
         for _, p in procs:
             p.wait()
+    finished.set()
     for t in threads:
         t.join(timeout=5)
     return {site: p.returncode for site, p in procs}
@@ -344,7 +366,7 @@ def main():
             return 1
 
     say(f"\nRunning {', '.join(plan)} for '{name}'" + (f", first {limit} articles" if limit else "") + ".")
-    say("Progress prints every 20 seconds. Ctrl+C stops; running the same command again resumes.\n")
+    say("Progress prints every minute. Ctrl+C stops; running the same command again resumes.\n")
     codes = run_sites(name, plan, limit, a.headful, a.retry_failed)
 
     files = summarize(name, list(plan))
