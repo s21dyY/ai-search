@@ -1,3 +1,32 @@
+# --- OS / editor / Python ---
 .DS_Store
-__pycache__
-venv
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# --- Secrets and login sessions (never commit) ---
+# account emails + passwords; template: accounts.example.toml
+accounts.toml
+# Chrome profiles holding logged-in sessions
+profiles/
+.env
+
+# --- Local notes ---
+local-docs/
+
+# --- Run inputs and outputs ---
+# API input CSVs, queue databases, result CSVs, logs, screenshots, page samples
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# --- Outputs of the old scrapers in history/ (written to the working directory) ---
+gannett_*.csv
+screenshots_*/
+
+# --- seleniumbase runtime files ---
+downloaded_files/
+latest_logs/
+archived_logs/

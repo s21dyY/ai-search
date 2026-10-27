@@ -29,6 +29,7 @@
 # USAT - USA TODAY (usatoday.com)
 
 # Imports
+import os
 import requests
 import sys
 import json
@@ -41,8 +42,8 @@ class GannettAPI:
     def __init__(self):
         # Global variables
         self.api_url = "https://content-api.gannettdigital.com/assets"
-        ## Add your API key here
-        self.api_key = ""
+        ## Add your API key here, or set the GANNETT_API_KEY environment variable
+        self.api_key = os.environ.get("GANNETT_API_KEY", "")
         
     # Grab data from a site based on a site code (listed above) and a date range as YYYY-MM-DD
     def _get_site_data_by_date(self, site_code, start_date, end_date, sample=None):
@@ -143,7 +144,7 @@ if __name__ == "__main__":
         print("Need a date parameter after the filename in the form of YYYY-MM-DD or YYYY-MM-DD_DD for multiple days")
         sys.exit(1)
 
-    OUTPUT_DIR = Path("/Users/ASutton/dev/ai-search")
+    OUTPUT_DIR = Path(__file__).resolve().parents[1] / "data" / dates   # data/<dates>/ (gitignored)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     output_path = OUTPUT_DIR / f"gannett_API_data_{dates}.csv"    

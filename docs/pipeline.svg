@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="480" viewBox="0 0 1260 480" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>How the pipeline works</title>
+  <defs>
+    <marker id="blue-big" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="24" markerHeight="24" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3B73D6"/>
+    </marker>
+    <marker id="blue-head" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="13" markerHeight="13" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3B73D6"/>
+    </marker>
+    <marker id="red-head" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="13" markerHeight="13" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#A33A2E"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1260" height="480" fill="#FFFFFF"/>
+
+  <!-- ===== Top row ===== -->
+  <rect x="30" y="30" width="206" height="160" rx="14" fill="#F1F2F4" stroke="#D3D7DD"/>
+  <text x="50" y="103" font-size="21" font-weight="700" fill="#111827">Input</text>
+  <text x="50" y="130" font-size="15" fill="#4B5563">Articles from one day</text>
+
+  <rect x="280" y="30" width="206" height="160" rx="4" fill="#F1F2F4" stroke="#6B7280" stroke-width="1.5"/>
+  <text x="300" y="103" font-size="21" font-weight="700" fill="#111827">Job queue</text>
+  <text x="300" y="130" font-size="15" fill="#4B5563">One row per article</text>
+
+  <rect x="530" y="30" width="206" height="160" rx="14" fill="#E8EEF8" stroke="#C9D6EE"/>
+  <rect x="545" y="42" width="176" height="32" rx="8" fill="#FAFAF7"/>
+  <text x="559" y="63" font-size="14" fill="#111827"><tspan font-weight="700">Worker 1</tspan> · own account</text>
+  <rect x="545" y="80" width="176" height="32" rx="8" fill="#FAFAF7"/>
+  <text x="559" y="101" font-size="14" fill="#111827"><tspan font-weight="700">Worker 2</tspan> · own account</text>
+  <text x="633" y="133" font-size="20" font-weight="700" fill="#6B7280" text-anchor="middle">⋮</text>
+  <rect x="545" y="146" width="176" height="32" rx="8" fill="#FAFAF7"/>
+  <text x="559" y="167" font-size="14" fill="#111827"><tspan font-weight="700">Worker n</tspan> · own account</text>
+
+  <rect x="780" y="30" width="206" height="160" rx="14" fill="#F1F2F4" stroke="#D3D7DD"/>
+  <text x="800" y="103" font-size="21" font-weight="700" fill="#111827">Ask &amp; check</text>
+  <text x="800" y="130" font-size="15" fill="#4B5563">Was our article cited?</text>
+
+  <rect x="1030" y="30" width="206" height="160" rx="14" fill="#F1F2F4" stroke="#D3D7DD"/>
+  <text x="1050" y="103" font-size="21" font-weight="700" fill="#111827">Store</text>
+  <text x="1050" y="130" font-size="15" fill="#4B5563">Results table per site</text>
+
+  <g stroke="#3B73D6" stroke-width="8" marker-end="url(#blue-big)">
+    <line x1="241" y1="110" x2="274" y2="110"/>
+    <line x1="491" y1="110" x2="524" y2="110"/>
+    <line x1="741" y1="110" x2="774" y2="110"/>
+    <line x1="991" y1="110" x2="1024" y2="110"/>
+  </g>
+
+  <!-- ===== Connectors ===== -->
+  <line x1="883" y1="190" x2="883" y2="252" stroke="#A33A2E" stroke-width="2" marker-end="url(#red-head)"/>
+  <text x="895" y="228" font-size="17" font-weight="700" fill="#A33A2E">check fails</text>
+
+  <line x1="383" y1="260" x2="383" y2="198" stroke="#3B73D6" stroke-width="2.5" stroke-dasharray="7 6" marker-end="url(#blue-head)"/>
+  <text x="397" y="228" font-size="17" font-weight="700" fill="#3B73D6">back to queue</text>
+
+  <!-- ===== Failure band ===== -->
+  <rect x="30" y="260" width="1206" height="196" rx="14" fill="#EAF0FA" stroke="#3B73D6" stroke-width="1.5"/>
+  <text font-size="21" font-weight="700" fill="#111827">
+    <tspan x="52" y="352">If something</tspan>
+    <tspan x="52" y="378">goes wrong</tspan>
+  </text>
+
+  <rect x="210" y="276" width="440" height="76" rx="10" fill="#FAFAF7"/>
+  <text x="230" y="307" font-size="17" font-weight="700" fill="#111827">Retryable</text>
+  <text x="230" y="333" font-size="15" fill="#4B5563">Back to the queue after 2 minutes</text>
+
+  <line x1="660" y1="314" x2="696" y2="314" stroke="#3B73D6" stroke-width="5" marker-end="url(#blue-big)"/>
+
+  <rect x="706" y="276" width="510" height="76" rx="10" fill="#FAFAF7"/>
+  <text x="726" y="307" font-size="17" font-weight="700" fill="#111827">3rd failure</text>
+  <text x="726" y="333" font-size="15" fill="#4B5563">Marked failed, kept as an empty row</text>
+
+  <rect x="210" y="364" width="440" height="76" rx="10" fill="#FAFAF7"/>
+  <text x="230" y="395" font-size="17" font-weight="700" fill="#111827">Blocked</text>
+  <text x="230" y="421" font-size="15" fill="#4B5563">Back to the queue after 5 minutes</text>
+
+  <rect x="706" y="364" width="510" height="76" rx="10" fill="#FAFAF7"/>
+  <text x="726" y="395" font-size="17" font-weight="700" fill="#111827">Worker stops</text>
+  <text x="726" y="421" font-size="15" fill="#4B5563">Restarted, its article goes back to the queue</text>
+</svg>

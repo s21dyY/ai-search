@@ -11,7 +11,7 @@ template. This produces more varied, realistic queries that better reflect
 how real users would search for the same story.
 
 Usage:
-    from Prompt_Generator import PromptGenerator
+    from ingest.Prompt_Generator import PromptGenerator
 
     pg = PromptGenerator()                     # reads OPENAI_API_KEY from env
     prompt = pg.generate(row["headline"], row["keywords"])
@@ -20,7 +20,6 @@ Usage:
 import os
 import re
 import keyring
-import Set_Password
 from openai import OpenAI
 
 
@@ -53,8 +52,8 @@ class PromptGenerator:
         if not resolved_key:
             raise ValueError(
                 "No OpenAI API key found. Set the OPENAI_API_KEY environment "
-                "variable, pass api_key= to PromptGenerator(), or store it "
-                "with Set_Password.py under service name 'openai'."
+                "variable, pass api_key= to PromptGenerator(), or store it in the "
+                "system keyring under service 'openai', user 'api_key'."
             )
         self.client = OpenAI(api_key=resolved_key)
 
