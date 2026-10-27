@@ -45,8 +45,13 @@ def build_prompts(articles: list[dict], use_generator: bool = True) -> None:
         if not a["headline"].strip():
             a["prompt"], a["prompt_source"] = "", "none"
             continue
+        a["prompt"] = ""
         if gen is not None:
-            a["prompt"] = gen.generate(a["headline"], a.get("keywords", ""))
+            try:                                 # fallback=False: a failed call must not be marked generated
+                a["prompt"] = gen.generate(a["headline"], a.get("keywords", ""), fallback=False).strip()
+            except Exception:
+                pass
+        if a["prompt"]:
             a["prompt_source"] = "generated"
         else:
             a["prompt"] = f"What can you tell me about: {a['headline']}"
