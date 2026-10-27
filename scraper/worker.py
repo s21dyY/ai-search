@@ -71,6 +71,7 @@ def main():
 
     log(wid, f"start | model={a.model} account={acct or 'guest'}")
     restart()
+    blocks_in_a_row = 0                      # reset by a finished task
     try:
         while True:
             task = q.claim(con, wid)
@@ -99,6 +100,7 @@ def main():
                 repub = flags["republisher_in_citations"] or flags["republisher_in_search_results"]
                 q.record_attempt(con, task, wid, acct_label, "done", started, row)
                 q.finish(con, tid, wid, "done")
+                blocks_in_a_row = 0
                 log(wid, f"task {tid} done in {time.time() - started:.0f}s | citations={row['n_citations']} "
                          f"search={row['n_search_results']} original={orig} republisher={repub}")
 
@@ -122,6 +124,10 @@ def main():
                 status = q.give_back(con, tid, wid, f"blocked: {e}", cap=a.blocked_cap, cooldown=a.blocked_cooldown)
                 log(wid, f"task {tid} blocked ({e}) -> {status}; back in the queue after {a.blocked_cooldown:.0f}s")
                 restart()
+                blocks_in_a_row += 1
+                if blocks_in_a_row >= 2:         # blocked again without a success: the account looks limited
+                    log(wid, f"blocked {blocks_in_a_row} times in a row; worker pauses {a.blocked_cooldown:.0f}s")
+                    time.sleep(a.blocked_cooldown)
 
             except (RetryableError, ScraperError) as e:
                 shot = scraper.screenshot(shots / "Errors" / f"Task_{tid}_a{task['tries'] + 1}_retryable.png")
