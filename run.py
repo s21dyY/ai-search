@@ -307,7 +307,8 @@ def main():
     p.add_argument("--sites", help="chatgpt, perplexity, or both (comma-separated)")
     p.add_argument("--limit", type=int, help="only the first N articles")
     p.add_argument("--test-articles", type=int, help="create a test input with N sample articles if none exists")
-    p.add_argument("--guest", action="store_true", help="ChatGPT without an account: one logged-out worker")
+    p.add_argument("--guest", action="store_true", help="if accounts.toml has no ChatGPT account, run one logged-out ChatGPT worker without asking; "
+                        "ChatGPT accounts, when present, are always used")
     p.add_argument("--skip-login-check", action="store_true")
     p.add_argument("--retry-failed", action="store_true", help="re-run articles that failed last time")
     p.add_argument("--headful", action="store_true", help="show the browser windows")
