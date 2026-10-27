@@ -147,12 +147,16 @@ def known_urls(con) -> set:
     return {r[0] for r in con.execute("SELECT article_url FROM tasks")}
 
 
-def sweep_stuck(con, stuck_after: float, stuck_cap: int) -> tuple[int, int]:
+def sweep_stuck(con, stuck_after: float, stuck_cap: int) -> tuple[int, int, set[str]]:
     """Running tasks with no heartbeat for stuck_after seconds go back to pending
-    (stuck_count + 1), or to failed once stuck_count reaches stuck_cap."""
+    (stuck_count + 1), or to failed once stuck_count reaches stuck_cap. Also returns the
+    ids of the workers that held them, so the caller can stop those (hung) workers."""
     now = time.time()
     con.execute("BEGIN IMMEDIATE")
     try:
+        hung = {r[0] for r in con.execute(
+            "SELECT worker_id FROM tasks WHERE status='running' AND heartbeat_at < ? AND worker_id IS NOT NULL",
+            (now - stuck_after,))}
         failed = con.execute(
             "UPDATE tasks SET status='failed', finished_at=?, worker_id=NULL, stuck_count=stuck_count+1,"
             " last_error='stuck: no heartbeat' WHERE status='running' AND heartbeat_at < ? AND stuck_count+1 >= ?",
@@ -165,7 +169,7 @@ def sweep_stuck(con, stuck_after: float, stuck_cap: int) -> tuple[int, int]:
     except Exception:
         con.execute("ROLLBACK")
         raise
-    return requeued, failed
+    return requeued, failed, hung
 
 
 def release_worker(con, worker_id: str) -> int:
@@ -233,6 +237,24 @@ def record_attempt(con, task: dict, worker_id: str, account: str | None, outcome
               started_at, time.time()] + [vals[k] for k in ATTEMPT_FIELDS]
     con.execute(f"INSERT INTO attempts({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", params)
     return attempt_no
+
+
+def complete(con, task: dict, worker_id: str, account: str | None, started_at: float, row: dict) -> bool:
+    """
+    Mark the task done and store its result, but only if this worker still holds it. A task
+    swept away from a slow worker may already be done by another; the late result is then
+    kept as a 'stale' attempt, which export() ignores. Returns True if the result was used.
+    """
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        owned = con.execute("UPDATE tasks SET status='done', finished_at=?, worker_id=NULL, last_error=''"
+                            " WHERE id=? AND worker_id=?", (time.time(), task["id"], worker_id)).rowcount == 1
+        record_attempt(con, task, worker_id, account, "done" if owned else "stale", started_at, row)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    return owned
 
 
 def finish(con, task_id: int, worker_id: str, status: str, error: str = ""):

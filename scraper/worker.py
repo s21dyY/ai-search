@@ -119,9 +119,10 @@ def main():
                 row = {**res.to_row(), **flags}
                 orig = flags.get("original_in_sources", flags["original_in_citations"] or flags["original_in_search_results"])
                 repub = flags["republisher_in_citations"] or flags["republisher_in_search_results"]
-                q.record_attempt(con, task, wid, acct_label, "done", started, row)
-                q.finish(con, tid, wid, "done")
                 blocks_in_a_row = 0
+                if not q.complete(con, task, wid, acct_label, started, row):
+                    log(wid, f"task {tid} was taken back from this worker while it ran; result kept as stale")
+                    continue
                 log(wid, f"task {tid} done in {time.time() - started:.0f}s | citations={row['n_citations']} "
                          f"search={row['n_search_results']} original={orig} republisher={repub}")
 

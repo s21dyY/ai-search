@@ -174,9 +174,13 @@ def main():
     try:
         while True:
             time.sleep(20)
-            requeued, failed = q.sweep_stuck(con, a.stuck_after, a.stuck_cap)
+            requeued, failed, hung = q.sweep_stuck(con, a.stuck_after, a.stuck_cap)
             if requeued or failed:
                 print(f"sweep: {requeued} stuck task(s) requeued, {failed} failed after {a.stuck_cap} stalls")
+            for w in workers:                    # alive but stuck on a task: stop it; restarted below
+                if w.wid in hung and w.proc.poll() is None:
+                    print(f"{w.wid} stopped responding on a task; stopping it")
+                    w.kill_tree()
             for w in workers:
                 if w.stopped or w.proc.poll() is None:
                     continue
