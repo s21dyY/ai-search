@@ -16,6 +16,7 @@ import argparse
 import importlib
 import random
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -32,6 +33,25 @@ SCRAPERS = {
 
 def log(worker_id: str, msg: str):
     print(f"{time.strftime('%H:%M:%S')} [{worker_id}] {msg}", flush=True)
+
+
+def keep_alive(db: str, task_id: int, worker_id: str, every: float, max_age: float) -> threading.Event:
+    """
+    Refresh the task's heartbeat from a background thread every `every` seconds, so a slow
+    but working task is not swept and handed to a second worker. Stops after max_age
+    seconds, so a hung worker's task is still swept. Set the returned event to stop.
+    """
+    stop = threading.Event()
+
+    def beat():
+        con = q.connect(db)
+        start = time.time()
+        while not stop.wait(every) and time.time() - start < max_age:
+            q.heartbeat(con, task_id, worker_id)
+        con.close()
+
+    threading.Thread(target=beat, daemon=True).start()
+    return stop
 
 
 def make_scraper(model: str, account: str | None, headless: bool):
@@ -53,6 +73,8 @@ def main():
     p.add_argument("--blocked-cooldown", type=float, default=300, help="wait before a blocked task is tried again")
     p.add_argument("--blocked-cap", type=int, default=3, help="mark a task failed after this many blocks")
     p.add_argument("--idle-poll", type=float, default=15)
+    p.add_argument("--heartbeat-every", type=float, default=60)
+    p.add_argument("--heartbeat-max", type=float, default=600, help="stop refreshing a task's heartbeat after this long")
     a = p.parse_args()
 
     wid, acct = a.worker_id, a.account
@@ -84,14 +106,13 @@ def main():
 
             tid = task["id"]
             log(wid, f"task {tid} (try {task['tries'] + 1}): {str(task['headline'])[:70]}")
+            stop_beat = keep_alive(a.db, tid, wid, a.heartbeat_every, a.heartbeat_max)
             time.sleep(random.uniform(*scraper.throttle))
-            q.heartbeat(con, tid, wid)
             started = time.time()
             try:
                 if not (task.get("prompt") or "").strip() or not (task.get("headline") or "").strip():
                     raise BadInputError("empty headline or prompt")
                 res = scraper.run_one(task["prompt"])
-                q.heartbeat(con, tid, wid)
                 flags = source_flags(a.model, res, task["article_url"], task["headline"])
                 if found_source(flags):
                     res.screenshot_path = scraper.screenshot(shots / f"Task_{tid}_a{task['tries'] + 1}_SourceUsed.png")
@@ -143,6 +164,8 @@ def main():
                 status = q.retry_later(con, tid, wid, a.retry_cooldown, a.max_tries, f"{type(e).__name__}: {e}")
                 log(wid, f"task {tid} unexpected {type(e).__name__}: {str(e)[:100]} -> {status}")
                 restart()
+            finally:
+                stop_beat.set()
     except KeyboardInterrupt:
         log(wid, "interrupted")
         return 130
