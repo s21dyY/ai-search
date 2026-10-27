@@ -230,7 +230,8 @@ def check_logins(plan: dict) -> dict:
     return ok_plan
 
 
-def run_sites(name: str, plan: dict, limit: int | None, headful: bool, retry_failed: bool) -> None:
+def run_sites(name: str, plan: dict, limit: int | None, headful: bool, retry_failed: bool) -> dict:
+    """Runs every site at once. Returns {site: exit code}; 0 means every article is done."""
     procs = []
     for i, (site, names) in enumerate(plan.items()):
         cmd = [sys.executable, "-m", "scraper.run_queue", "--model", site, "--dates", name]
@@ -263,6 +264,7 @@ def run_sites(name: str, plan: dict, limit: int | None, headful: bool, retry_fai
             p.wait()
     for t in threads:
         t.join(timeout=5)
+    return {site: p.returncode for site, p in procs}
 
 
 def summarize(name: str, sites: list[str]) -> list[Path]:
@@ -342,13 +344,18 @@ def main():
 
     say(f"\nRunning {', '.join(plan)} for '{name}'" + (f", first {limit} articles" if limit else "") + ".")
     say("Progress prints every 20 seconds. Ctrl+C stops; running the same command again resumes.\n")
-    run_sites(name, plan, limit, a.headful, a.retry_failed)
+    codes = run_sites(name, plan, limit, a.headful, a.retry_failed)
 
     files = summarize(name, list(plan))
-    if files and not a.no_analysis and ask_yes("\nRun analysis/Analysis_Metrics.py on the results?"):
+    unfinished = [site for site, code in codes.items() if code != 0]
+    if unfinished:
+        say(f"\nWARNING: not every article finished on {', '.join(unfinished)}; those are empty rows in the results.\n"
+            f"Try them again with: python run.py --name {name} --retry-failed")
+    if files and not a.no_analysis and ask_yes("\nRun analysis/Analysis_Metrics.py on the results?",
+                                               default=not unfinished):
         run_analysis(files)
     say(f"\nAll files for this run: {paths.rel(paths.run_dir(name))}/")
-    return 0
+    return 1 if unfinished else 0
 
 
 if __name__ == "__main__":

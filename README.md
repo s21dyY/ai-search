@@ -47,7 +47,7 @@ That is all. It asks a few questions (press Enter to accept the default shown in
 1. gets the input: an existing file in `data/<name>/`; for a date, the Gannett API (needs `GANNETT_API_KEY`; sample articles are never used for a date); for any other name, a test sample from `ingest/dataset.csv`
 2. checks every account in `accounts.toml` is logged in on each site, logging in again automatically when needed; a browser window opens only if Google wants a manual step
 3. runs ChatGPT and Perplexity at the same time, one worker per account, with retries
-4. prints a summary and offers to run `analysis/Analysis_Metrics.py` on the results
+4. prints a summary and offers to run `analysis/Analysis_Metrics.py` on the results. If some articles did not finish, it says so, skips the analysis unless you answer yes, and exits with status 1, so a scheduled run can detect it
 
 It switches to the project's `venv` by itself, so `python3 run.py` works without activating it. Ctrl+C stops a run; running it again with the same name resumes.
 

@@ -53,6 +53,11 @@ def build_prompts(articles: list[dict], use_generator: bool = True) -> None:
             a["prompt_source"] = "fallback"
 
 
+def all_done(c: dict) -> bool:
+    """Every article done. Failed or unfinished articles make the run exit with 1."""
+    return c["failed"] == 0 and c["pending"] == 0 and c["running"] == 0
+
+
 class Worker:
     def __init__(self, wid: str, account: str | None, cmd: list[str], log_path: Path):
         self.wid, self.account, self.cmd, self.log_path = wid, account, cmd, log_path
@@ -147,7 +152,7 @@ def main():
     if q.open_work(con) == 0:
         print("Nothing to do.")
         print("Exported:", *(paths.rel(x) for x in q.export(con, a.model, a.dates)))
-        return 0
+        return 0 if all_done(q.counts(con)) else 1
 
     # --- start workers, staggered ---
     logs = paths.logs_dir(a.dates, a.model)
@@ -222,7 +227,7 @@ def main():
     n_att = con.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
     print(f"\nDone in {time.time() - t0:.0f}s | {c} | attempts={n_att}")
     print(f"raw:   {paths.rel(raw_path)}\nclean: {paths.rel(clean_path)}")
-    return 0
+    return 0 if all_done(c) else 1
 
 
 if __name__ == "__main__":
