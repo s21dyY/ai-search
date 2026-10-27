@@ -72,6 +72,10 @@ class PerplexityScraper(BaseScraper):
     # -- steps ---------------------------------------------------------------
 
     def open_new_chat(self):
+        # Per-article source state; reset here because extract_sources() is skipped
+        # when an answer has no sources, and the browser is reused across articles.
+        self._sources_expected = None
+        self._search_status = "none"
         self.driver.uc_open_with_reconnect(self.url, reconnect_time=4)
         ok = self.wait_until(lambda: self.exists(self.INPUT), timeout=20, poll=0.5)
         if not ok:
@@ -186,8 +190,6 @@ class PerplexityScraper(BaseScraper):
                 citations.append({"url": url, "headline": "", "snippet": "",
                                   "publisher": self._text(el).split("+")[0].strip(), "kind": "inline"})
 
-        self._sources_expected = None
-        self._search_status = "none"
         btn, _ = self.find_first(self.SOURCES_BUTTON, visible=True)
         if btn is None:
             return citations, []
@@ -224,8 +226,8 @@ class PerplexityScraper(BaseScraper):
                 if "perplexity.ai" not in (a.get_attribute("href") or "") and self._displayed(a)]
 
     def collect_extras(self, result):
-        result.search_results_status = getattr(self, "_search_status", "none")
-        exp = getattr(self, "_sources_expected", None)
+        result.search_results_status = self._search_status
+        exp = self._sources_expected
         # Old column number_of_sources: the count on the "N sources" button, 0 when absent.
         result.extras["number_of_sources"] = exp if exp is not None else len(result.search_results)
         if exp is not None and len(result.search_results) < exp:
