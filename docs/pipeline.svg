@@ -73,7 +73,7 @@
 
   <rect x="210" y="364" width="440" height="76" rx="10" fill="#FAFAF7"/>
   <text x="230" y="395" font-size="17" font-weight="700" fill="#111827">Blocked</text>
-  <text x="230" y="421" font-size="15" fill="#4B5563">Back to the queue, worker pauses</text>
+  <text x="230" y="421" font-size="15" fill="#4B5563">Back to the queue after 5 minutes</text>
 
   <rect x="706" y="364" width="510" height="76" rx="10" fill="#FAFAF7"/>
   <text x="726" y="395" font-size="17" font-weight="700" fill="#111827">Worker stops</text>

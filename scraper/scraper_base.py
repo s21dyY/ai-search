@@ -63,7 +63,7 @@ class RetryableError(ScraperError):
 
 
 class BlockedError(ScraperError):
-    """Login wall, Cloudflare challenge, rate limit. The worker pauses."""
+    """Login wall, Cloudflare challenge, rate limit. The task waits; the worker moves on."""
     kind = "blocked"
 
 
@@ -769,11 +769,11 @@ def login_session(scraper_cls: type[BaseScraper], profile: str):
 
 
 def run_csv(scraper_cls: type[BaseScraper], dates: str, headless: bool = True,
-            limit: int | None = None, blocked_pause: float = 600, profile: str | None = None):
+            limit: int | None = None, profile: str | None = None):
     """
     Read data/<dates>/gannett_API_data_<dates>.csv, ask one prompt per article, write
     data/<dates>/<name>/gannett_<name>_<dates>.csv after every article. No retries here; the
-    queue runner handles those. A blocked page restarts the browser and pauses.
+    queue runner handles those. A blocked page restarts the browser.
     """
     from ingest.Prompt_Generator import PromptGenerator  # needs OPENAI_API_KEY; import lazily
 
@@ -826,9 +826,6 @@ def run_csv(scraper_cls: type[BaseScraper], dates: str, headless: bool = True,
                 df.loc[idx, ["status", "error", "screenshot_path"]] = [e.kind, str(e)[:300], shot]
                 print(f"  article {n}: {e.kind}: {e}")
                 restart()
-                if isinstance(e, BlockedError):
-                    print(f"  blocked; pausing {blocked_pause:.0f} s")
-                    time.sleep(blocked_pause)
 
             df.to_csv(out_path, index=False)
             print(f"[{name}] {n}/{total} ({n / total:.0%}) status={df.loc[idx, 'status']}")

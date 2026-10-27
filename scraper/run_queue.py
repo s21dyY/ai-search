@@ -32,12 +32,6 @@ from . import paths
 from . import queue_db as q
 from .scraper_base import ROOT
 
-DEFAULTS = {
-    #                 chatgpt  perplexity
-    "blocked_pause": {"chatgpt": 1800, "perplexity": 600},
-}
-
-
 def build_prompts(articles: list[dict], use_generator: bool = True) -> None:
     """Generate one prompt per article, once, at enqueue time (PRD 5.1)."""
     gen = None
@@ -103,7 +97,7 @@ def main():
     p.add_argument("--stagger", type=float, default=15)
     p.add_argument("--max-tries", type=int, default=3)
     p.add_argument("--retry-cooldown", type=float, default=120)
-    p.add_argument("--blocked-pause", type=float)
+    p.add_argument("--blocked-cooldown", type=float, default=300, help="wait before a blocked article is tried again")
     p.add_argument("--blocked-cap", type=int, default=3, help="mark an article failed after this many blocks")
     p.add_argument("--stuck-after", type=float, default=600)
     p.add_argument("--stuck-cap", type=int, default=3)
@@ -158,12 +152,11 @@ def main():
     # --- start workers, staggered ---
     logs = paths.logs_dir(a.dates, a.model)
     logs.mkdir(parents=True, exist_ok=True)
-    blocked_pause = a.blocked_pause if a.blocked_pause is not None else DEFAULTS["blocked_pause"][a.model]
     workers = []
     for wid, acct in slots:
         cmd = [sys.executable, "-m", "scraper.worker", "--db", str(dbp), "--model", a.model, "--dates", a.dates,
                "--worker-id", wid, "--max-tries", str(a.max_tries), "--retry-cooldown", str(a.retry_cooldown),
-               "--blocked-pause", str(blocked_pause), "--blocked-cap", str(a.blocked_cap)]
+               "--blocked-cooldown", str(a.blocked_cooldown), "--blocked-cap", str(a.blocked_cap)]
         if acct:
             cmd += ["--account", acct]
         if a.headful:

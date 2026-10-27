@@ -250,10 +250,11 @@ def retry_later(con, task_id: int, worker_id: str, cooldown: float, max_tries: i
     return status
 
 
-def give_back(con, task_id: int, worker_id: str, error: str, cap: int | None = None) -> str:
+def give_back(con, task_id: int, worker_id: str, error: str, cap: int | None = None,
+              cooldown: float = 0) -> str:
     """
-    Blocked: back to pending at once (tries unchanged) so another worker may take it.
-    With cap, the block is counted; at cap blocks the task is marked failed, so a task
+    Blocked: back to pending (tries unchanged), ready again after cooldown; meanwhile workers
+    take other pending tasks. With cap, the block is counted; at cap blocks the task is marked failed, so a task
     that keeps getting blocked cannot keep a run from finishing. cap=None (login needs a
     person) does not count. Returns the new status.
     """
@@ -264,7 +265,7 @@ def give_back(con, task_id: int, worker_id: str, error: str, cap: int | None = N
     error = f"{error} (blocked {blocks} of {cap} times)" if cap is not None else error
     con.execute("UPDATE tasks SET status=?, blocked_count=?, next_run_at=?, worker_id=NULL, last_error=?,"
                 " finished_at=CASE WHEN ?='failed' THEN ? ELSE finished_at END WHERE id=? AND worker_id=?",
-                (status, blocks, time.time(), error[:500], status, time.time(), task_id, worker_id))
+                (status, blocks, time.time() + cooldown, error[:500], status, time.time(), task_id, worker_id))
     return status
 
 

@@ -50,7 +50,7 @@ def main():
     p.add_argument("--headful", action="store_true")
     p.add_argument("--max-tries", type=int, default=3)
     p.add_argument("--retry-cooldown", type=float, default=120)
-    p.add_argument("--blocked-pause", type=float, default=1800)
+    p.add_argument("--blocked-cooldown", type=float, default=300, help="wait before a blocked task is tried again")
     p.add_argument("--blocked-cap", type=int, default=3, help="mark a task failed after this many blocks")
     p.add_argument("--idle-poll", type=float, default=15)
     a = p.parse_args()
@@ -119,10 +119,9 @@ def main():
                 shot = scraper.screenshot(shots / "Errors" / f"Task_{tid}_a{task['tries'] + 1}_blocked.png")
                 q.record_attempt(con, task, wid, acct_label, "blocked", started, error_class=e.kind,
                                  error_message=str(e), screenshot_path=shot)
-                status = q.give_back(con, tid, wid, f"blocked: {e}", cap=a.blocked_cap)
-                log(wid, f"task {tid} blocked ({e}) -> {status}; worker pauses {a.blocked_pause:.0f}s")
+                status = q.give_back(con, tid, wid, f"blocked: {e}", cap=a.blocked_cap, cooldown=a.blocked_cooldown)
+                log(wid, f"task {tid} blocked ({e}) -> {status}; back in the queue after {a.blocked_cooldown:.0f}s")
                 restart()
-                time.sleep(a.blocked_pause)
 
             except (RetryableError, ScraperError) as e:
                 shot = scraper.screenshot(shots / "Errors" / f"Task_{tid}_a{task['tries'] + 1}_retryable.png")
