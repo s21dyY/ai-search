@@ -675,28 +675,24 @@ class BaseScraper:
             self.check_blocked()
             raise RetryableError(f"not_sent: nothing happened within {self.not_sent_timeout} s")
 
-        # 2. Generation finished.
-        remaining = self.hard_timeout - (time.time() - start)
-        done = self.wait_until(lambda: not self.is_generating(), remaining)
-        if not done:
-            raise RetryableError(f"timeout: still generating after {self.hard_timeout} s")
-
-        # 3. Answer text stable for stable_window seconds.
-        last = self.answer_text()
-        stable_since = time.time()
+        # 2. Done when, in the same check, there is answer text, nothing is generating, and
+        # the text has not changed for stable_window seconds. Empty text keeps waiting: logged-in
+        # ChatGPT hides its stop button while it searches, before any answer text appears.
+        last, stable_since = None, time.time()
         while time.time() - start < self.hard_timeout:
-            time.sleep(self.poll)
             cur = self.answer_text()
-            if cur != last:
+            if cur != last or self.is_generating():
                 last, stable_since = cur, time.time()
-            elif time.time() - stable_since >= self.stable_window:
-                break
-        else:
-            raise RetryableError("timeout: answer text never stabilised")
+            elif cur.strip() and time.time() - stable_since >= self.stable_window:
+                return
+            time.sleep(self.poll)
 
-        if not last.strip():
+        if not (last or "").strip():
             self.check_blocked()
-            raise RetryableError("empty_answer")
+            raise RetryableError(f"empty_answer: no answer text within {self.hard_timeout} s")
+        if self.is_generating():
+            raise RetryableError(f"timeout: still generating after {self.hard_timeout} s")
+        raise RetryableError("timeout: answer text never stabilised")
 
     # -- one prompt end to end ------------------------------------------------
 
