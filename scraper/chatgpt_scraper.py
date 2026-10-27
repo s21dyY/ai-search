@@ -56,7 +56,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
 from .scraper_base import (BaseScraper, BlockedError, LoginChallenge, RetryableError, cli,
-                          normalize_url, remove_non_bmp)
+                          normalize_url, remove_non_bmp, strip_chatgpt_utm)
 
 # Selector sets. Each value is an ordered candidate list; the first match wins.
 GUEST = dict(
@@ -122,7 +122,7 @@ class ChatGPTScraper(BaseScraper):
     # Runs inside the browser on the assistant message element (guest page).
     _EXTRACT_JS = r"""
     const root = arguments[0];
-    const clean = u => (u || '').replace(/[?&]utm_source=chatgpt\.com/g, '');
+    const clean = u => (u || '').replace(/([?&])utm_source=chatgpt\.com(&|(?=#)|$)/g, (m, sep, next) => next ? sep : '');
     const txt = el => ((el && (el.innerText || el.textContent)) || '').trim();
     const citations = [], seen = new Set();
     root.querySelectorAll("a[href^='http']").forEach(a => {
@@ -478,7 +478,7 @@ class ChatGPTScraper(BaseScraper):
                                 btns = self._popover_entry_buttons()
                             if i < len(btns):
                                 url = self._resolve_entry_url(btns[i])
-                                e["url"] = url.replace("?utm_source=chatgpt.com", "").replace("&utm_source=chatgpt.com", "")
+                                e["url"] = strip_chatgpt_utm(url)
                         except Exception as ex:
                             print(f"  [chatgpt] url resolve failed for {e['publisher']!r}: {str(ex)[:80]}")
                     out.append(e)
@@ -634,7 +634,7 @@ class ChatGPTScraper(BaseScraper):
                 url = a.get_attribute("href") or ""
             except Exception:
                 continue
-            url = url.replace("?utm_source=chatgpt.com", "").replace("&utm_source=chatgpt.com", "")
+            url = strip_chatgpt_utm(url)
             if not url.startswith("http") or url in seen:
                 continue
             seen.add(url)
@@ -714,7 +714,7 @@ def parse_search_results(bodies: list) -> list:
             for e, group_domain in _walk_entries(doc):
                 if not isinstance(e, dict):
                     continue
-                url = (e.get("url") or "").replace("?utm_source=chatgpt.com", "").replace("&utm_source=chatgpt.com", "")
+                url = strip_chatgpt_utm(e.get("url"))
                 if not url.startswith("http"):
                     continue
                 key = normalize_url(url)

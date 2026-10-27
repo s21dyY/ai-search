@@ -126,9 +126,18 @@ def remove_non_bmp(text: str) -> str:
     return "".join(c for c in text if ord(c) <= 0xFFFF)
 
 
+# ChatGPT adds utm_source=chatgpt.com to every link. Remove just that parameter and keep
+# the rest: x?utm_source=chatgpt.com&ref=1 -> x?ref=1, x?ref=1&utm_source=chatgpt.com -> x?ref=1.
+# chatgpt_scraper._EXTRACT_JS uses the same pattern in the browser.
+CHATGPT_UTM = re.compile(r"([?&])utm_source=chatgpt\.com(&|(?=#)|$)")
+
+
+def strip_chatgpt_utm(url: str) -> str:
+    return CHATGPT_UTM.sub(lambda m: m.group(1) if m.group(2) else "", url or "")
+
+
 def normalize_url(url: str) -> str:
-    url = (url or "").strip()
-    url = re.sub(r"[?&]utm_source=chatgpt\.com", "", url)
+    url = strip_chatgpt_utm((url or "").strip())
     url = re.sub(r"^https?://", "", url)
     url = re.sub(r"^www\.", "", url)
     return url.rstrip("/").lower()
@@ -168,7 +177,7 @@ def legacy_chatgpt_flags(sources: list, page_url: str, headline: str) -> tuple[i
     page_url, headline = page_url or "", headline or ""
     original = republisher = 0
     for c in sources:
-        url = (c.get("url") or "").replace("?utm_source=chatgpt.com", "")
+        url = strip_chatgpt_utm(c.get("url"))
         if url and url in page_url:
             original = 1
         h = (c.get("headline") or "").split(" ...")[0]
